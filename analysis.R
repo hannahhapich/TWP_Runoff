@@ -1,5 +1,7 @@
 #Load libraries ----
 library(tidyverse)
+library(broom)
+library(minpack.lm)
 
 #Load data ----
 runoff_data <- read.csv("data/runoff_data.csv")
@@ -31,6 +33,7 @@ runoff_data$density_g_mL[is.na(runoff_data$density_g_mL)] <- mean_density
 
 # Calculate volume (mL)
 runoff_data$volume_mL <- runoff_data$water_mass_g / runoff_data$density_g_mL
+
 
 
 
@@ -166,6 +169,232 @@ water_flux <- water_flux %>%
          V = q/y) #Flow velocity in m/s
   
 
+
+#Fitting wash-off models ----
+##Data cleaning ----
+#Calculate cumulative sample mass
+sample_mass_cumulative <- sample_mass %>%
+  group_by(run) %>%
+  mutate(start_time_min = as.numeric (start_time_min),
+         end_time_min = as.numeric(end_time_min)) %>%
+  arrange(end_time_min, .by_group = TRUE) %>%  # make sure time is sorted
+  mutate(cumulative_mass_g = cumsum(sample_mass_g)) %>%
+  ungroup()
+
+w0 = 1 #Initial load, 1 g
+wash_off_mass <- sample_mass_cumulative %>% 
+  select(-c(jar_mas_g, jar_and_sample_mass_g, raw_mass_g)) %>%
+  left_join(metadata %>% select(run, condition), by = "run") %>% #Add condition id
+  left_join(water_flux %>% select(run, avg_mm_min), by = "run") %>% 
+  rename(t = end_time_min, #t = time of wash-off measurement (min)
+         i = avg_mm_min, #i = rainfall intensity (mm/min)
+         wt = cumulative_mass_g) %>% #Wt = total wash-off mass (g) at time t
+  mutate(frac = wt/w0) #Wash off fraction here equals Wt because W0 = 1 g, but here for future calculations
+
+#Integrate across replicates
+wash_off_avg <- wash_off_mass %>%
+  group_by(condition, t) %>%
+  summarise(
+    frac_mean = mean(frac),
+    i_mean = mean(i),
+    .groups = "drop"
+  )
+
+#Uncoupled 2-factor model (capacity factor and k) (Egodawatta et al, 2007) ----
+##Check model for single condition ----
+model_check <- nls( #Nonlinear least squares
+  frac_mean ~ cf * (1 - exp(-k * i_mean * t)),
+  data = wash_off_avg %>% filter(condition == 1),
+  start = list(cf = 0.5, k = 0.01)  # starting guesses
+)
+summary(model_check) #Capacity factor = 0.82, k = 0.091, RSE = 0.03 (good fit, within 3% predicted curve)
+
+#Plot data points vs model fit for visual confirmation
+df_cond1 <- wash_off_avg %>% filter(condition == 1)  # or however you're labeling condition 1
+i_val <- unique(df_cond1$i_mean)
+
+df_pred <- data.frame(
+  t = seq(0, max(df_cond1$t), length.out = 100)
+) %>%
+  mutate(
+    pred_frac = coef(model_check)["cf"] * (1 - exp(-coef(model_check)["k"] * i_val * t))
+  )
+
+ggplot(df_cond1, aes(x = t, y = frac_mean)) +
+  geom_point(color = "blue") +
+  geom_line(data = df_pred, aes(x = t, y = pred_frac), color = "red") +
+  labs(x = "Time (min)", y = "Wash-off fraction",
+       title = "Condition 1: observed vs fitted curve")
+
+
+##Batch model fit ----
+egodawatta_model_fit <- function(df_cond) {
+  df_cond <- df_cond %>% arrange(t)
+  i_val <- unique(df_cond$i_mean)[1]
+  
+  cf0 <- pmin(0.98, max(df_cond$frac_mean, na.rm = TRUE)) #Starting guess for cf: just under the observed max
+  slope <- (df_cond$frac_mean[2] - df_cond$frac_mean[1]) /
+    (df_cond$t[2] - df_cond$t[1])
+  k0 <- max(1e-4, slope / (cf0 * i_val)) #Starting guess for k: slope ≈ cf*k*i  =>  k ≈ slope/(cf*i)
+  
+  nls(
+    frac_mean ~ cf * (1 - exp(-k * i_val * t)),
+    data = df_cond,
+    start = list(cf = cf0, k = k0),
+    control = nls.control(maxiter = 500, warnOnly = TRUE)
+  )
+}
+
+
+#Apply function for all conditions
+egodawatta_model_results <- map(unique(wash_off_avg$condition), function(cond) {
+  df_cond <- filter(wash_off_avg, condition == cond)
+  mod <- try(egodawatta_model_fit(df_cond), silent = TRUE)
+  if (inherits(mod, "try-error")) return(NULL)
+  list(condition = cond, model = mod)
+})
+
+#Extract parameter table
+param_table <- map_dfr(fits, function(x) {
+  if (is.null(x)) return(NULL)
+  df_cond <- dplyr::filter(wash_off_avg, condition == x$condition)
+  mod <- x$model
+  
+  rss <- sum(residuals(mod)^2) #Residual sum of squares
+  n   <- nrow(df_cond)
+  p   <- length(stats::coef(mod)) #Capacity factor and k
+  rse <- sqrt(rss / pmax(1, n - p)) #Residual standard error
+  max_frac <- max(df_cond$frac_mean, na.rm = TRUE) #Mass wash-off fraction measured
+  
+  broom::tidy(mod) %>%
+    select(term, estimate) %>%
+    pivot_wider(names_from = term, values_from = estimate) %>%
+    mutate(
+      condition = x$condition,
+      n = n,
+      rss = rss,
+      rse = rse,
+      max_frac = max_frac
+    )
+})
+
+#Model predictions
+predictions <- map_dfr(egodawatta_model_results, function(x) {
+  if (is.null(x)) return(NULL)
+  df_cond <- filter(wash_off_avg, condition == x$condition)
+  i_val <- unique(df_cond$i_mean)[1]
+  t_seq <- seq(0, max(df_cond$t), length.out = 100)
+  tibble(
+    condition = x$condition,
+    t = t_seq,
+    pred_frac = coef(x$model)["cf"] * (1 - exp(-coef(x$model)["k"] * i_val * t_seq))
+  )
+})
+
+#Plot data points vs model predictions for visual confirmation
+ggplot() +
+  geom_point(data = wash_off_avg, aes(x = t, y = frac_mean), alpha = 0.7, color = "blue") +
+  geom_line(data = predictions, aes(x = t, y = pred_frac), color = "red") +
+  facet_wrap(~ condition, scales = "free_x") +
+  labs(x = "Time (min)", y = "Wash-off fraction",
+       title = "Uncoupled 2-factor model: observed vs fitted by condition") +
+  theme_minimal()
+
+
+#Coupled model (f(k) and kprime) (Muthumasy et al, 2018) ----
+#Build functions for iterative solving of c* and k'
+rss_for_condition <- function(df_cond, cval, kprime) {
+  i_val <- unique(df_cond$i_mean)[1]
+  fcap  <- cval * kprime
+  if (is.na(i_val) || cval <= 0 || kprime <= 0 || fcap > 1) return(Inf)
+  pred <- fcap * (1 - exp(-kprime * i_val * df_cond$t))
+  sum((df_cond$frac_mean - pred)^2, na.rm = TRUE)
+}
+
+fit_kprime_for_c <- function(df_cond, cval) {
+  upper <- (1 / cval) - 1e-8
+  if (upper <= 0) return(NULL)
+  # 1-D optimize over k' in (0, 1/c)
+  opt <- optimize(function(kp) rss_for_condition(df_cond, cval, kp),
+                  interval = c(1e-8, upper))
+  list(kprime = opt$minimum,
+       rss    = opt$objective,
+       fcap   = cval * opt$minimum)
+}
+
+#Solve for c and find min value (c*)
+c_grid <- seq(1, 20, by = 0.2)
+fit_for_c <- function(cval) {
+  fits <- wash_off_avg %>%
+    group_by(condition) %>%
+    group_map(~{
+      f <- fit_kprime_for_c(.x, cval)
+      if (is.null(f)) return(NULL)
+      tibble(condition = .y$condition, kprime = f$kprime, fcap = f$fcap, rss = f$rss)
+    }) %>% bind_rows()
+  tibble(c = cval,
+         total_rss = sum(fits$rss),
+         n_cond = nrow(fits))
+}
+
+c_sweep <- map_dfr(c_grid, fit_for_c)
+c_star <- c_sweep$c[which.min(c_sweep$total_rss)]
+print(c_star) #c* = 4.2 mm
+
+#Fit all conditions with c*
+refit_at_cstar <- function(df_cond, cval) {
+  f <- fit_kprime_for_c(df_cond, cval)
+  if (is.null(f)) return(tibble())
+  rss <- f$rss
+  n   <- nrow(df_cond)
+  p   <- 1L
+  rse <- sqrt(rss / pmax(1, n - p))
+  
+  tibble(
+    c_mm      = cval,
+    k_prime   = f$kprime,
+    f_k       = f$fcap,
+    rss       = rss,
+    n_points  = n,
+    rse       = rse,
+    max_frac  = max(df_cond$frac_mean, na.rm = TRUE)
+  )
+}
+#Apply function and extract parameter table
+param_table_coupled <- wash_off_avg %>%
+  dplyr::group_by(condition) %>%
+  dplyr::group_modify(~ refit_at_cstar(.x, c_star)) %>%
+  dplyr::ungroup()
+
+#Per-condition intensity & time horizon
+cond_meta <- wash_off_avg %>%
+  dplyr::group_by(condition) %>%
+  dplyr::summarise(
+    i_val = unique(i_mean)[1],
+    t_max = max(t, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+#Extract model predictions
+predictions_coupled <- param_table_coupled %>%
+  dplyr::inner_join(cond_meta, by = "condition") %>%
+  purrr::pmap_dfr(function(condition, c_mm, k_prime, f_k, rss, n_points, rse, max_frac, i_val, t_max) {
+    t_seq <- seq(0, t_max, length.out = 100)
+    tibble::tibble(
+      condition = condition,
+      t = t_seq,
+      pred_frac = f_k * (1 - exp(-k_prime * i_val * t_seq))
+    )
+  })
+
+#Plot data points vs model predictions for visual confirmation
+ggplot() +
+  geom_point(data = wash_off_avg, aes(x = t, y = frac_mean), alpha = 0.7, color = "blue") +
+  geom_line(data = predictions_coupled, aes(x = t, y = pred_frac), color = "red") +
+  facet_wrap(~ condition, scales = "free_x") +
+  labs(x = "Time (min)", y = "Wash-off fraction",
+       title = "Coupled model (global c*): observed vs fitted by condition") +
+  theme_minimal()
 
 
 
