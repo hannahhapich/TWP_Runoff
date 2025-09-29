@@ -4,11 +4,11 @@ library(broom)
 library(minpack.lm)
 
 #Load data ----
-runoff_data <- read.csv("data/runoff_data.csv")
-mass_data <- read.csv("data/mass_data.csv")
-metadata <- read.csv("data/metadata.csv")
-PSA_data <- read.csv("data/PSA_data.csv")
-rain_data <- read.csv("data/rain_data.csv")
+runoff_data <- read.csv("data/input_data/runoff_data.csv")
+mass_data <- read.csv("data/input_data/mass_data.csv")
+metadata <- read.csv("data/input_data/metadata.csv")
+PSA_data <- read.csv("data/input_data/PSA_data.csv")
+rain_data <- read.csv("data/input_data/rain_data.csv")
 
 #Convert runoff mass to volume -----
 # Jones (1992) function: density of air-saturated water
@@ -42,7 +42,7 @@ runoff_data$volume_mL <- runoff_data$water_mass_g / runoff_data$density_g_mL
 #Filter data
 blank_mass <- mass_data %>% filter(end_time_min == "Blank")
 sample_mass <- mass_data %>% filter(!start_time_min == "N/A") %>%
-  mutate(raw_mass_g = jar_and_sample_mass_g - jar_mas_g) #Correction for % calculation because sample_mass_g is already blank subtracted
+  mutate(raw_mass_g = jar_and_sample_mass_g - jar_mass_g) #Correction for % calculation because sample_mass_g is already blank subtracted
 blank_PSA <- PSA_data %>% filter(interval == "0")
 
 #Mean and SD blank mass, % total sample mass
@@ -61,7 +61,9 @@ print(sd(mobilized_PSA$FLength)) #SD = 177.1187
 
 
 #Variability between replicates ----
-#Mass-based variability between individual samples
+##Mass-based variability between individual samples ----
+
+#Mean, SD, and CV
 mass_variability <- mass_data %>%
   group_by(end_time_min, slope, surface, rainfall) %>%
   summarize(
@@ -81,7 +83,7 @@ mass_variability_filtered <- mass_variability %>%
 
 print(mean(mass_variability_filtered$cv)) #Mean CV = 10.672%
 
-##KS tests for mass flux distributions ----
+###KS tests for mass flux distributions ----
 #Mass based KS test function
 ks_mass <- function(df) {
   # Get all pairwise combinations of replicates
@@ -113,6 +115,8 @@ print(sd(mass_ks$p_value)) #SD p_value = 0.03340815
 
 print(mean(mass_ks$D)) #Mean D = 0.1712963
 print(sd(mass_ks$D)) #SD D = 0.06300634
+
+
 
 
 
@@ -150,6 +154,9 @@ average_water_flux <- water_flux %>%
 print(average_water_flux) #Average rain data from water flux
 
 
+
+
+
 #Estimating flow depth ----
 #Calculate Re to determine laminar vs turbulent flow
 v = 1.0*10^(-6) #Kinematic viscosity (1.0×10^−6 m2/s)
@@ -170,6 +177,9 @@ water_flux <- water_flux %>%
   
 
 
+
+
+
 #Fitting wash-off models ----
 ##Data cleaning ----
 #Calculate cumulative sample mass
@@ -183,7 +193,7 @@ sample_mass_cumulative <- sample_mass %>%
 
 w0 = 1 #Initial load, 1 g
 wash_off_mass <- sample_mass_cumulative %>% 
-  select(-c(jar_mas_g, jar_and_sample_mass_g, raw_mass_g)) %>%
+  select(-c(jar_mass_g, jar_and_sample_mass_g, raw_mass_g)) %>%
   left_join(metadata %>% select(run, condition), by = "run") %>% #Add condition id
   left_join(water_flux %>% select(run, avg_mm_min), by = "run") %>% 
   rename(t = end_time_min, #t = time of wash-off measurement (min)
@@ -194,7 +204,7 @@ wash_off_mass <- sample_mass_cumulative %>%
 #Integrate across replicates
 wash_off_avg <- wash_off_mass %>%
   group_by(condition, t) %>%
-  summarise(
+  summarize(
     frac_mean = mean(frac),
     i_mean = mean(i),
     .groups = "drop"
@@ -369,7 +379,7 @@ param_table_coupled <- wash_off_avg %>%
 #Per-condition intensity & time horizon
 cond_meta <- wash_off_avg %>%
   dplyr::group_by(condition) %>%
-  dplyr::summarise(
+  dplyr::summarize(
     i_val = unique(i_mean)[1],
     t_max = max(t, na.rm = TRUE),
     .groups = "drop"
@@ -395,6 +405,323 @@ ggplot() +
   labs(x = "Time (min)", y = "Wash-off fraction",
        title = "Coupled model (global c*): observed vs fitted by condition") +
   theme_minimal()
+
+
+
+#Mass-based Q50 (from linear extrapolation) ----
+sample_mass_Q50 <- sample_mass_cumulative %>% 
+  select(-c(jar_mass_g, jar_and_sample_mass_g, sample_mass_g, raw_mass_g))
+
+#Calculate Q50 for each run
+##Function
+qtime_mass <- function(dat, time_col = "end_time_min",
+                                cum_col = "cumulative_mass_g", p = 0.5) {
+  t  <- dat[[time_col]]
+  cM <- dat[[cum_col]]
+  
+  #Keep rows with finite time and cumulative
+  ok <- is.finite(t) & is.finite(cM)
+  t  <- t[ok]; cM <- cM[ok]
+  if (!length(t)) return(NA_real_)
+  o  <- order(t); t <- t[o]; cM <- cM[o]
+  
+  #Explicit (0,0) anchor
+  if (t[1] > 0) { t <- c(0, t); cM <- c(0, cM) } else if (t[1] == 0) cM[1] <- 0
+  
+  #Final cumulative = value at the last time point in that run (30 if present, otherwise the max time)
+  final_cum <- cM[length(cM)]; if (!is.finite(final_cum) || final_cum <= 0) return(NA_real_)
+  
+  #Define target mass
+  target <- p * final_cum
+  #First index where cumulative >= target
+  if (max(cM, na.rm = TRUE) < target) return(NA_real_)
+  
+  #Linear interpolation between points
+  k <- which(cM >= target)[1]; if (k == 1) return(t[1])
+  t[k-1] + (target - cM[k-1])/(cM[k]-cM[k-1]) * (t[k]-t[k-1])
+}
+
+#Apply to all runs
+mass_qtile <- sample_mass_Q50 %>%
+  group_by(surface, slope, rainfall, run) %>%
+  summarise(
+    Q25_time_min = qtime_mass(cur_data(), p = 0.25),
+    Q50_time_min = qtime_mass(cur_data(), p = 0.50),
+    Q75_time_min = qtime_mass(cur_data(), p = 0.75),
+    .groups = "drop"
+  )
+
+#Summarize across groups
+mass_qtile_summary <- mass_qtile %>%
+  group_by(surface, slope, rainfall) %>%
+  summarise(
+    n_runs = dplyr::n(),
+    across(starts_with("Q"),
+           list(mean = ~mean(.x, na.rm = TRUE),
+                sd   = ~sd(.x,   na.rm = TRUE)),
+           .names = "{.col}_{.fn}"),
+    .groups = "drop"
+  )
+
+
+
+
+#Particle transport speed by size ----
+mobilized_PSA <- mobilized_PSA %>% 
+  left_join(metadata %>% select(run, condition), by = "run")
+
+#Define size classes
+size_breaks <- c(-Inf, 125, 250, 500, 1000, Inf)
+size_labels <- c("<125 µm", "125–250 µm", "250–500 µm", "500–1000 µm", ">1000 µm")
+
+#Function to derive quantile times
+qtime <- function(dat, weight_col = c("count","volume"), p = 0.5) {
+  weight_col <- rlang::arg_match(weight_col)
+  w <- dat[[weight_col]]
+  tot <- sum(w, na.rm = TRUE)
+  if (length(w) == 0 || tot == 0) return(NA_real_)
+  
+  #Cumulative BEFORE interval
+  cum_prev <- dplyr::lag(cumsum(w), default = 0)
+  target   <- p * tot
+  
+  #Identify first interval where target quantile is crossed
+  idx <- which(cum_prev < target & (cum_prev + w) >= target)
+  if (!length(idx)) return(max(dat$end_time_min, na.rm = TRUE))
+  i <- idx[1]
+  
+  t0 <- dat$start_time_min[i]
+  t1 <- dat$end_time_min[i]
+  wi <- w[i]
+  if (wi <= 0) return(t1)
+  
+  #Linear extrapolation between bins
+  frac <- (target - cum_prev[i]) / wi
+  t0 + frac * (t1 - t0)
+}
+
+##Calculate count and volume based quantile times ----
+PSA_qtile_times <- mobilized_PSA %>%
+  mutate(size_class = cut(FLength, breaks = size_breaks, labels = size_labels, right = TRUE)) %>%
+  filter(!is.na(size_class)) %>%
+  group_by(condition, size_class, end_time_min) %>%
+  summarize(
+    count  = n(),
+    volume = sum(Volume, na.rm = TRUE),
+    .groups = "drop_last"   #Leaves grouping by condition & size_class
+  ) %>%
+  arrange(condition, size_class, end_time_min) %>%
+  group_by(condition, size_class) %>%
+  mutate(
+    start_time_min = dplyr::lag(end_time_min, default = 0)
+  ) %>%
+
+  summarize( #Note: all quantile times here are in minutes
+    Q25_count_time = qtime(cur_data_all(), "count", 0.25),
+    Q50_count_time = qtime(cur_data_all(), "count", 0.50),
+    Q75_count_time = qtime(cur_data_all(), "count", 0.75),
+    Q25_vol_time   = qtime(cur_data_all(), "volume", 0.25),
+    Q50_vol_time   = qtime(cur_data_all(), "volume", 0.50),
+    Q75_vol_time   = qtime(cur_data_all(), "volume", 0.75),
+    .groups = "drop"
+  ) %>%
+  arrange(condition, factor(size_class, levels = size_labels))
+
+##Calculate quantile effective velocity ----
+PSA_qtile_speeds <- PSA_qtile_times %>% 
+  #Calculate quantile speeds (m/s)
+  mutate(Q25_count_v = 1.1/(Q25_count_time*60), #Converting from minutes to seconds
+         Q50_count_v = 1.1/(Q50_count_time*60),
+         Q75_count_v = 1.1/(Q75_count_time*60),
+         Q25_vol_v   = 1.1/(Q25_vol_time*60),
+         Q50_vol_v   = 1.1/(Q50_vol_time*60),
+         Q75_vol_v   = 1.1/(Q75_vol_time*60)) %>%
+  left_join(metadata %>% select(-c(replicate, run)) %>% distinct(), by = "condition")
+
+
+#Particle transport effectiveness by size ----
+immobile_PSA <- PSA_data %>% filter(interval == 7) %>%
+  left_join(metadata %>% select(c(condition, run)) %>% distinct(), by = "run")
+
+#Assign size classes from above
+mobilized_size_class <- mobilized_PSA %>%
+  mutate(size_class = cut(FLength, breaks = size_breaks, labels = size_labels))
+immobile_size_class <- immobile_PSA %>%
+  mutate(size_class = cut(FLength, breaks = size_breaks, labels = size_labels))
+
+#Check the number of replicates is constant before comparing aggregate data
+replicate_check_mob <- mobilized_size_class %>%
+  group_by(condition) %>%
+  summarize(n_replicates = n_distinct(run), .groups = "drop")
+replicate_check_immob <- immobile_size_class %>%
+  group_by(condition) %>%
+  summarize(n_replicates = n_distinct(run), .groups = "drop")
+
+# Summarize mobilized
+mob_sum <- mobilized_size_class %>%
+  group_by(condition, size_class) %>%
+  summarize(
+    mobilized_count  = n(),
+    mobilized_volume = sum(Volume, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+#Summarize immobile
+immob_sum <- immobile_size_class %>%
+  group_by(condition, size_class) %>%
+  summarize(
+    immobile_count  = n(),
+    immobile_volume = sum(Volume, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Combine & calculate % mobilized
+percent_mobilized <- full_join(mob_sum, immob_sum,
+                               by = c("condition","size_class")) %>%
+  mutate(across(everything(), ~replace_na(.x, 0))) %>%
+  mutate(
+    total_count  = mobilized_count + immobile_count,
+    total_volume = mobilized_volume + immobile_volume,
+    perc_count_mobilized  = ifelse(total_count > 0, mobilized_count / total_count * 100, NA),
+    perc_volume_mobilized = ifelse(total_volume > 0, mobilized_volume / total_volume * 100, NA)
+  ) %>%
+  arrange(condition, size_class)
+
+
+
+#Particle shape analysis ----
+shape_data <- mobilized_size_class %>% 
+  filter(size_class != "<125 µm", size_class != "125–250 µm") %>%
+  mutate(elongation = FWidth/FLength,
+         flatness = FThickness/FWidth,
+         velocity = 1.10 / (end_time_min * 60), #v in m/s
+         surface = ifelse(condition < 10, "sand", "concrete"))
+
+#Separate particles on sand vs concrete
+sand_shape <- shape_data %>% filter(condition < 10) 
+conc_shape <- shape_data %>% filter(condition > 9) 
+
+#Find mean particle velocities as a function of size
+sand_shape_summary <- sand_shape %>%
+  group_by(size_class) %>%
+  summarize(
+    mean_velocity  = mean(velocity)
+  )
+conc_shape_summary <- conc_shape %>%
+  group_by(size_class) %>%
+  summarize(
+    mean_velocity  = mean(velocity)
+  )
+
+#Calculate normalized particle velocity: v_particle/v_mean (mean for a given size class + surface)
+sand_shape <- sand_shape %>%
+  left_join(sand_shape_summary, by = "size_class") %>%
+  mutate(velocity_norm = velocity/mean_velocity)
+conc_shape <- conc_shape %>%
+  left_join(conc_shape_summary, by = "size_class") %>%
+  mutate(velocity_norm = velocity/mean_velocity)
+
+#Correlation tests between shape descriptors and normalized velocity
+cor.test(sand_shape$elongation, sand_shape$velocity_norm, method = "spearman") #rho = 0.1156033
+cor.test(sand_shape$flatness, sand_shape$velocity_norm, method = "spearman") #rho = 0.007444385
+cor.test(sand_shape$Sphericity, sand_shape$velocity_norm, method = "spearman") #rho = 0.1136321
+cor.test(sand_shape$Convexity, sand_shape$velocity_norm, method = "spearman") #rho = 0.06800014
+
+cor.test(conc_shape$elongation, conc_shape$velocity_norm, method = "spearman") #rho = 0.09362008
+cor.test(conc_shape$flatness, conc_shape$velocity_norm, method = "spearman") #rho = 0.1742604
+cor.test(conc_shape$Sphericity, conc_shape$velocity_norm, method = "spearman") #rho = 0.1211792
+cor.test(conc_shape$Convexity, conc_shape$velocity_norm, method = "spearman") #rho = 0.1635184
+
+#Regression model
+lm(velocity_norm ~ elongation + flatness + Sphericity + Convexity, data = sand_shape)
+lm(velocity_norm ~ elongation + flatness + Sphericity + Convexity, data = conc_shape)
+
+#Plot any variables with rho > 0.1
+shape_data <- rbind(sand_shape, conc_shape)
+ggplot(shape_data, aes(x = elongation, y = velocity_norm)) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  ylim(min(shape_data$velocity_norm), max(shape_data$velocity_norm)) +
+  facet_wrap(~surface)
+ggplot(shape_data, aes(x = flatness, y = velocity_norm)) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  ylim(min(shape_data$velocity_norm), max(shape_data$velocity_norm)) +
+  facet_wrap(~surface)
+ggplot(shape_data, aes(x = Sphericity, y = velocity_norm)) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  ylim(min(shape_data$velocity_norm), max(shape_data$velocity_norm)) +
+  facet_wrap(~surface)
+ggplot(shape_data, aes(x = Convexity, y = velocity_norm)) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  ylim(min(shape_data$velocity_norm), max(shape_data$velocity_norm)) +
+  facet_wrap(~surface)
+
+
+#Significance testing ----
+##Mass-based significance testing ----
+###Model parameters ----
+#Data prep
+param_table_coupled <- param_table_coupled %>% 
+  left_join(metadata %>% select(-c(run, replicate)) %>% distinct(), by = "condition")
+
+#Run ANOVA
+#Ensure factors are coded properly
+param_table_coupled <- param_table_coupled %>%
+  mutate(
+    slope = factor(slope),
+    rainfall = factor(rainfall),
+    surface = factor(surface)
+  )
+
+#ANOVA tests
+anova_kprime <- aov(k_prime ~ slope * rainfall * surface, data = param_table_coupled)
+anova_fk     <- aov(f_k     ~ slope * rainfall * surface, data = param_table_coupled)
+
+summary(anova_kprime)
+summary(anova_fk)
+
+###Q50 and total wash-off fraction ----
+
+
+##Particle size significance testing ----
+#Data prep
+PSA_summary_data <- percent_mobilized %>%
+  select(condition, size_class, perc_count_mobilized, perc_volume_mobilized) %>%
+  left_join(PSA_qtile_speeds %>% select(condition, size_class, Q50_count_time, Q50_vol_time), by = c("condition", "size_class")) %>%
+  left_join(metadata %>% select(-c(run, replicate)) %>% distinct(), by = "condition")
+
+# Encode factors
+PSA_summary_data <- PSA_summary_data %>%
+  mutate(
+    slope    = factor(slope),
+    rainfall = factor(rainfall),
+    surface  = factor(surface),
+    size_class = factor(size_class)
+  )
+
+#ANOVA tests
+aov_q50_count <- aov(Q50_count_time ~ slope * rainfall * surface * size_class,
+                     data = PSA_summary_data)
+aov_q50_vol <- aov(Q50_vol_time ~ slope * rainfall * surface * size_class,
+                     data = PSA_summary_data)
+aov_mobilized_count <- aov(perc_count_mobilized ~ slope * rainfall * surface * size_class,
+                     data = PSA_summary_data)
+aov_mobilized_vol <- aov(perc_volume_mobilized ~ slope * rainfall * surface * size_class,
+                     data = PSA_summary_data)
+summary(aov_q50_count)
+summary(aov_q50_vol)
+summary(aov_mobilized_count)
+summary(aov_mobilized_vol)
+
+
+
+#Data export ----
+write.csv(water_flux, "data/output_data/flux_data.csv")
+write.csv(PSA_qtile_speeds, "data/output_data/PSA_velocity.csv")
+write.csv(percent_mobilized, "data/output_data/PSA_percent_mobilized.csv")
+write.csv(param_table_coupled, "data/output_data/muthumasy_model_parameters.csv")
+write.csv(predictions_coupled, "data/output_data/muthumasy_model_projections.csv")
+write.csv(mass_qtile_summary, "data/output_data/quartile_mass_flux.csv")
+
 
 
 
