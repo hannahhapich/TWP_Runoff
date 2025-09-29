@@ -1,4 +1,4 @@
-run,start_time_min,end_time_min,jar_mas_g,jar_and_sample_mass_g,sample_mass_g,slope,surface,rainfall,replicate
+run,start_time_min,end_time_min,jar_mass_g,jar_and_sample_mass_g,sample_mass_g,slope,surface,rainfall,replicate
 1,N/A,Blank,2.61232,2.66673,0.05441,15,sand,med,1
 1,0,5,2.61153,2.9447,0.27876,15,sand,med,1
 1,5,10,2.5728,2.89378,0.26657,15,sand,med,1
