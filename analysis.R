@@ -117,6 +117,83 @@ print(mean(mass_ks$D)) #Mean D = 0.1712963
 print(sd(mass_ks$D)) #SD D = 0.06300634
 
 
+###KS tests for PSA distributions ----
+#Define size classes
+size_breaks <- c(-Inf, 125, 250, 500, 1000, Inf)
+size_labels <- c("<125 µm", "125–250 µm", "250–500 µm", "500–1000 µm", ">1000 µm")
+
+mobilized_PSA <- PSA_data %>% filter(interval > 0, interval < 7) %>%
+  left_join(metadata %>% select(c(condition, run)) %>% distinct(), by = "run")
+
+#Assign size classes from above
+mobilized_size_class <- mobilized_PSA %>%
+  mutate(size_class = cut(FLength, breaks = size_breaks, labels = size_labels))
+
+#Summarize mobilized
+mob_sum <- mobilized_size_class %>%
+  group_by(run, size_class) %>%
+  summarize(mobilized_count  = n(),
+            mobilized_volume = sum(Volume, na.rm = TRUE),
+            .groups = "drop") %>%
+  left_join(metadata %>% select(condition, run), by = "run")
+
+#PSA KS test functions
+ks_psa_count <- function(df) {
+  replicates <- unique(df$run)
+  combs <- combn(replicates, 2, simplify = FALSE) # Get all pairwise combinations of replicates
+  
+  map_dfr(combs, function(pair) { # Run ks.test for each replicate pair
+    x <- df$mobilized_count[df$run == pair[1]]
+    y <- df$mobilized_count[df$run == pair[2]]
+    ks <- ks.test(x, y)
+    tibble(
+      replicate1 = pair[1],
+      replicate2 = pair[2],
+      D = ks$statistic,
+      p_value = ks$p.value)
+  })
+}
+
+ks_psa_vol <- function(df) {
+  replicates <- unique(df$run)
+  combs <- combn(replicates, 2, simplify = FALSE) # Get all pairwise combinations of replicates
+  
+  map_dfr(combs, function(pair) { # Run ks.test for each replicate pair
+    x <- df$mobilized_volume[df$run == pair[1]]
+    y <- df$mobilized_volume[df$run == pair[2]]
+    ks <- ks.test(x, y)
+    tibble(
+      replicate1 = pair[1],
+      replicate2 = pair[2],
+      D = ks$statistic,
+      p_value = ks$p.value)
+  })
+}
+
+#Apply functions
+count_ks <- mob_sum %>%
+  group_by(condition) %>%
+  group_modify(~ ks_psa_count(.x)) %>%
+  ungroup()
+
+print(mean(count_ks$p_value)) #Mean p_value = 0.9247501
+print(sd(count_ks$p_value)) #SD p_value = 0.06297975
+
+print(mean(count_ks$D)) #Mean D = 0.3185185
+print(sd(count_ks$D)) #SD D = 0.09919311
+
+vol_ks <- mob_sum %>%
+  group_by(condition) %>%
+  group_modify(~ ks_psa_vol(.x)) %>%
+  ungroup()
+
+print(mean(vol_ks$p_value)) #Mean p_value = 0.9929453
+print(sd(vol_ks$p_value)) #SD p_value = 0.02936029
+
+print(mean(vol_ks$D)) #Mean D = 0.2111111
+print(sd(vol_ks$D)) #SD D = 0.04624246
+
+
 
 
 
@@ -128,7 +205,9 @@ average_rain <- rain_data %>%
     n = n(),
     mean_mm_min = mean(gauge_avg_mm_min, na.rm = TRUE),
     sd   = sd(gauge_avg_mm_min, na.rm = TRUE)
-  )
+  ) %>%
+  mutate(mean_mm_hr = mean_mm_min * 60,
+         sd_hr = sd * 60)
 
 print(average_rain) #Average rain gauge data
 
@@ -149,7 +228,9 @@ average_water_flux <- water_flux %>%
     n = n(),
     mean_mm_min = mean(avg_mm_min, na.rm = TRUE),
     sd   = sd(avg_mm_min, na.rm = TRUE)
-  )
+  ) %>%
+  mutate(mean_mm_hr = mean_mm_min * 60,
+         sd_hr = sd * 60)
 
 print(average_water_flux) #Average rain data from water flux
 
@@ -469,10 +550,6 @@ mass_qtile_summary <- mass_qtile %>%
 #Particle transport speed by size ----
 mobilized_PSA <- mobilized_PSA %>% 
   left_join(metadata %>% select(run, condition), by = "run")
-
-#Define size classes
-size_breaks <- c(-Inf, 125, 250, 500, 1000, Inf)
-size_labels <- c("<125 µm", "125–250 µm", "250–500 µm", "500–1000 µm", ">1000 µm")
 
 #Function to derive quantile times
 qtime <- function(dat, weight_col = c("count","volume"), p = 0.5) {
