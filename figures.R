@@ -2,6 +2,9 @@
 library(tidyverse)
 library(viridis)
 library(patchwork)
+library(scales)
+library(cowplot)
+library(rlang)
 
 #Load data ----
 flux_data <- read.csv("data/output_data/flux_data.csv")
@@ -18,12 +21,14 @@ PSA_perc_mobil <- read.csv("data/output_data/PSA_percent_mobilized.csv")
 params_surface <- model_params %>%
   mutate(
     rainfall_f = factor(rainfall, levels = c("high","med","low")),
-    slope_f    = factor(slope,    levels = c(5,10,15))
+    slope_f    = factor(slope,    levels = c(5,10,15)),
+    surface_f  = factor(surface, levels = c("sand","concrete"))
   )
 
 facet_labels <- list(
   slope_f    = c(`5`="Slope : 5º", `10`="Slope : 10º", `15`="Slope : 15º"),
-  rainfall_f = c(high="Rainfall : High", med="Rainfall : Medium", low="Rainfall : Low")
+  rainfall_f = c(high="Rainfall : High", med="Rainfall : Medium", low="Rainfall : Low"),
+  surface_f = c("Sand","Concrete")
 )
 
 #Make curves from model parameters
@@ -90,7 +95,13 @@ plot_surface <- function(surface_type = "sand") {
     mutate(y_anno = if_else(condition == 16 | condition == 17 | condition == 18, y_anno + 0.5, y_anno),
            x_anno = if_else(condition == 16 | condition == 17 | condition == 18, x_anno - 10, x_anno))
   
+  if (surface_type == "sand") {
+    title = "Sand Surface Wash-off Model"
+  } else {
+    title = "Concrete Surface Wash-off Model" } 
+  
   ggplot() +
+    
     #Flow (secondary axis)
     geom_line(data = runoff_surface,
               aes(x = end_time_min, y = Q/1000),
@@ -120,7 +131,7 @@ plot_surface <- function(surface_type = "sand") {
       sec.axis = sec_axis(~ . * 1000, name = "Q (mL/min)")
     ) +
     scale_x_continuous(name = "Time (min)", limits = c(0, 30)) +
-    ggtitle(paste(surface_type, "surface")) +
+    ggtitle(title) +
     theme_bw() +
     theme(
       strip.background = element_rect(fill = "grey90"),
@@ -211,16 +222,16 @@ ggsave("figures/heatmaps.png", heatmaps, width = 9, height = 3, dpi = 600)
 
 
 #PSA Velocity Quartiles----
-size_levels <- c("<125 µm","125-250 µm","250-500 µm","500-1000 µm",">1000 µm")
+size_labels <- c("<125 µm","125-250 µm","250-500 µm","500-1000 µm",">1000 µm")
 size_cols   <- setNames(
-  magma(length(size_levels), begin = 0.05, end = 0.85), #Avoid near-black & near-white
-  size_levels
+  magma(length(size_labels), begin = 0.05, end = 0.85), #Avoid near-black & near-white
+  size_labels
 )
 
 PSA_clean <- PSA_velocity %>%
   mutate(
     size_class = str_replace_all(size_class, "–", "-"),
-    size_f     = factor(size_class, levels = size_levels),
+    size_f     = factor(size_class, levels = size_labels),
     rainfall_f = factor(rainfall,
                         levels = c("low","med","high"),
                         labels = c("Low","Medium","High")),
@@ -240,7 +251,7 @@ plot_psa <- function(df, kind = c("count","volume")) {
     title_lab <- expression("Particle half load by size ("*Q[25]*", "*Q[50]*", and "*Q[75]*", by volume)")
   }
   
-  # 5 size classes per slope bin → dodge by size (order from size_levels)
+  # 5 size classes per slope bin → dodge by size (order from size_labels)
   pos <- position_dodge(width = 0.85)
   tick_w <- 0.28 #Tick marks
   line_w <- 0.7
@@ -289,14 +300,14 @@ ggsave("figures/psa_quartile_vol.png", p_psa_volume, width = 9, height = 6, dpi 
 
 #Percent mobilized by size ----
 #Palette & ordering
-size_levels <- c("<125 µm","125-250 µm","250-500 µm","500-1000 µm",">1000 µm")
-size_cols   <- setNames(magma(length(size_levels), begin = 0.05, end = 0.85), size_levels)
+size_labels <- c("<125 µm","125-250 µm","250-500 µm","500-1000 µm",">1000 µm")
+size_cols   <- setNames(magma(length(size_labels), begin = 0.05, end = 0.85), size_labels)
 
 PSA_perc_clean <- PSA_perc_mobil %>%
   left_join(metadata %>% select(-c(run, replicate)) %>% distinct(), by = "condition") %>%
   mutate(
     size_class = str_replace_all(size_class, "–", "-"),
-    size_f     = factor(size_class, levels = size_levels),
+    size_f     = factor(size_class, levels = size_labels),
     slope_f    = factor(slope,    levels = c(5, 10, 15)),
     surface_f  = factor(surface, levels = c("sand","concrete"),
                         labels = c("Sand","Concrete")),
@@ -403,11 +414,120 @@ ggsave("figures/heatmaps_flow.png", heatmaps_flow, width = 9, height = 3, dpi = 
 
 
 
+#CDFs: particle load by size ----
+#Read in data (warning, takes a couple minutes)
+PSA_data <- read.csv("data/input_data/PSA_data.csv") 
+
+PSA_mobilized <- PSA_data %>%
+  filter(interval < 7, interval > 0) %>%
+  select(FLength, Volume, run, end_time_min) %>%
+  left_join(metadata %>% select(run, condition) %>% distinct(),
+            by = "run") %>%
+  select(-run)
+
+#Assign size classes
+size_breaks <- c(-Inf, 125, 250, 500, 1000, Inf)
+size_labels <- c("<125 µm", "125–250 µm", "250–500 µm", "500–1000 µm", ">1000 µm")
+mobilized_size_class <- PSA_mobilized %>%
+  mutate(size_class = cut(FLength, breaks = size_breaks, labels = size_labels))
+
+#Set factors
+size_cols   <- setNames(magma(length(size_labels), begin = 0.10, end = 0.85), size_labels)
+cond_meta_f <- metadata %>%
+  distinct(condition, surface, rainfall, slope) %>%
+  mutate(
+    surface_f  = factor(surface,  levels = c("sand","concrete"),
+                        labels  = c("Sand","Concrete")),
+    rainfall_f = factor(rainfall, levels = c("high","med","low"),
+                        labels  = c("High","Medium","Low")),
+    slope_f    = factor(slope,    levels = c(5,10,15))
+  )
+
+#Time scale
+t_grid <- seq(0, 30, by = 5)
+
+#Prep from particle data
+cdf_by_condition <- mobilized_size_class %>%
+  transmute(
+    condition,
+    size_f = factor(size_class, levels = size_labels),
+    t      = as.numeric(end_time_min),         
+    w      = as.numeric(Volume)
+  ) %>%
+  filter(!is.na(size_f), is.finite(t)) %>%
+  group_by(condition, size_f, t) %>%
+  summarise(n = n(), vol = sum(w, na.rm = TRUE), .groups = "drop") %>%
+  group_by(condition, size_f) %>%
+  complete(t = t_grid, fill = list(n = 0, vol = 0)) %>%
+  arrange(t, .by_group = TRUE) %>%
+  mutate(
+    cum_n  = cumsum(n),
+    cum_v  = cumsum(vol),
+    N_tot  = sum(n),
+    V_tot  = sum(vol),
+    frac_count  = ifelse(N_tot > 0, cum_n / N_tot, NA_real_),
+    frac_volume = ifelse(V_tot > 0, cum_v / V_tot, NA_real_)
+  ) %>%
+  ungroup() %>%
+  left_join(cond_meta_f, by = "condition")
+
+
+#Figure function
+plot_cdf_surface <- function(cdf_df, surface_name = c("Sand","Concrete"),
+                             kind = c("count","volume"), line_size = 0.9, pt_size = 1.2) {
+  surface_name <- match.arg(surface_name)
+  kind         <- match.arg(kind)
+  
+  y_col  <- if (kind == "count") rlang::sym("frac_count") else rlang::sym("frac_volume")
+  title_ <- paste0("CDF over time by size class — ", surface_name,
+                   " (by ", toupper(kind), ")")
+  
+  df <- cdf_df %>% dplyr::filter(surface_f == surface_name)
+  
+  ggplot(df, aes(x = t, y = !!y_col, color = size_f, group = size_f)) +
+    geom_line(linewidth = line_size) +
+    geom_point(size = pt_size) +
+    geom_point(data = ~ dplyr::filter(.x, t == 0),
+               size = pt_size + 0.4, show.legend = FALSE) +
+    facet_grid(rows = vars(rainfall_f), cols = vars(slope_f)) +
+    scale_color_manual(values = size_cols, name = "Size (µm)") +
+    scale_x_continuous(name = "Time (min)", breaks = seq(0, 30, 5), limits = c(0, 30),
+                       expand = expansion(add = c(0.5, 0))) +
+    scale_y_continuous(name = "Cumulative fraction (within size class)",
+                       labels = scales::percent_format(accuracy = 1),
+                       limits = c(0, 1)) +
+    labs(title = title_) +
+    theme_minimal(base_size = 12) +
+    theme(
+      plot.title.position = "plot",
+      panel.grid.minor = element_blank(),
+      strip.text = element_text(face = "bold")
+    )
+}
+
+#Make figures
+p_cdf_sand_count     <- plot_cdf_surface(cdf_by_condition, "Sand",     "count")
+p_cdf_sand_volume    <- plot_cdf_surface(cdf_by_condition, "Sand",     "volume")
+p_cdf_concrete_count <- plot_cdf_surface(cdf_by_condition, "Concrete", "count")
+p_cdf_concrete_vol   <- plot_cdf_surface(cdf_by_condition, "Concrete", "volume")
+
+#View
+p_cdf_sand_count
+p_cdf_sand_volume
+p_cdf_concrete_count
+p_cdf_concrete_vol
+
+#Save (white background)
+ggsave("figures/cdf_sand_count.png", p_cdf_sand_count, width = 7, height = 5, dpi = 600, bg = "white")
+ggsave("figures/cdf_sand_volume.png", p_cdf_sand_volume, width = 7, height = 5, dpi = 600, bg = "white")
+ggsave("figures/cdf_concrete_count.png", p_cdf_concrete_count, width = 7, height = 5, dpi = 600, bg = "white")
+ggsave("figures/cdf_concrete_volume.png",p_cdf_concrete_vol, width = 7, height = 5, dpi = 600, bg = "white")
+
+
+
+
 
 #PSD (All) ----
-#Read in data (warning, takes a couple minutes)
-PSA_data <- read.csv("data/input_data/PSA_data.csv")
-
 PSD_data <- PSA_data %>% select(FLength, Volume)
 
 #KDE Function
@@ -463,9 +583,180 @@ p_psd_count
 p_psd_volume
 
 #Side-by-side with patchwork
-#library(patchwork); p_psd_count | p_psd_volume
+#p_psd_count | p_psd_volume
 
-# Save with white background
+#Save with white background
 ggsave("figures/psd_all_count.png",  p_psd_count,  width = 8, height = 5, dpi = 300, bg = "white")
 ggsave("figures/psd_all_volume.png", p_psd_volume, width = 8, height = 5, dpi = 300, bg = "white")
+
+
+
+
+#Shape data linear regressions ----
+#Read in data (warning, takes a couple minutes)
+shape_data <- read.csv("data/output_data/shape_data.csv")
+
+pal_full <- magma(11)
+cols_7_9 <- pal_full[c(7, 9)]
+
+#Set factors
+surf_lvls <- levels(factor(shape_data$surface))
+if (length(surf_lvls) == 2) {
+  surf_cols <- setNames(cols_7_9, surf_lvls)
+} else {
+  surf_cols <- setNames(magma(length(surf_lvls)), surf_lvls)
+}
+
+#pal_full  <- viridisLite::magma(11)
+#surf_cols <- c(concrete = pal_full[7], sand = pal_full[9])
+
+plot_shape_overlay <- function(df, x,
+                               x_lab   = deparse(substitute(x)),
+                               title   = NULL,
+                               y_range = NULL,
+                               rho_mode   = c("auto","manual","none"),
+                               rho_vals   = NULL,          #named: c(concrete=..., sand=...)
+                               rho_method = c("spearman","pearson"),
+                               rho_digits = 2,
+                               beta_mode  = c("auto","manual","none"),
+                               beta_vals  = NULL,          #named: c(concrete=..., sand=...)
+                               beta_digits = 2,
+                               rho_size   = 5,
+                               rho_gap    = 0.18) {
+  
+  rho_mode   <- match.arg(rho_mode)
+  rho_method <- match.arg(rho_method)
+  beta_mode  <- match.arg(beta_mode)
+  
+  lvls <- levels(factor(df$surface))
+  cols <- surf_cols[lvls]; names(cols) <- lvls
+  lbls <- c(concrete="Concrete", sand="Sand")[lvls]
+  
+  y_rng <- if (is.null(y_range)) range(df$velocity_norm, na.rm = TRUE) else y_range
+  x_sym <- ensym(x)
+  
+  ##ρ (correlation) ----
+  rhos <- NULL
+  if (rho_mode == "auto") {
+    rhos <- sapply(lvls, function(s) {
+      d  <- df[df$surface == s, , drop = FALSE]
+      xv <- dplyr::pull(d, !!x_sym)
+      if (length(unique(xv)) < 2 || length(unique(d$velocity_norm)) < 2) return(NA_real_)
+      suppressWarnings(cor(xv, d$velocity_norm, method = rho_method, use = "complete.obs"))
+    })
+    names(rhos) <- lvls
+  } else if (rho_mode == "manual") {
+    rhos <- rho_vals[lvls]
+  }
+  
+  ##β (slope from lm) ----
+  betas <- NULL
+  if (beta_mode == "auto") {
+    betas <- sapply(lvls, function(s) {
+      d <- df[df$surface == s, , drop = FALSE]
+      if (nrow(d) < 2) return(NA_real_)
+      fit <- stats::lm(stats::reformulate(deparse(x_sym), response = "velocity_norm"), data = d)
+      unname(stats::coef(fit)[2])  #slope for x
+    })
+    names(betas) <- lvls
+  } else if (beta_mode == "manual") {
+    betas <- beta_vals[lvls]
+  }
+  
+  #Annotation (bottom-right, stacked)
+  ann_df <- NULL
+  if (!is.null(rhos) || !is.null(betas)) {
+    xr <- range(dplyr::pull(df, !!x_sym), na.rm = TRUE)
+    yr <- y_rng
+    ann_df <- tibble::tibble(
+      surface = lvls,
+      label = paste0("\u03b2 = ",
+                     ifelse(is.null(betas) | is.na(betas), "NA",
+                            sprintf(paste0("%.", beta_digits, "f"), betas)),
+                     ", \u03c1 = ",
+                     ifelse(is.null(rhos)  | is.na(rhos),  "NA",
+                            sprintf(paste0("%.", rho_digits,  "f"), rhos))),
+      x = xr[2] - 0.02 * diff(xr),
+      y = yr[1] + (seq_along(lvls) - 1L) * rho_gap * diff(yr) + 0.02 * diff(yr)
+    )
+  }
+  
+  ##Plot
+  p <- ggplot(df, aes(x = !!x_sym, y = velocity_norm)) +
+    geom_smooth(aes(color = surface, fill = surface),
+                method = "lm", se = TRUE, linewidth = 1) +
+    scale_color_manual(values = cols, breaks = lvls, labels = lbls, name = "Surface") +
+    scale_fill_manual(values  = scales::alpha(cols, 0.25),
+                      breaks = lvls, labels = lbls, name = "Surface") +
+    coord_cartesian(ylim = y_rng) +
+    labs(x = x_lab, y = NULL, title = title) +
+    theme_minimal(base_size = 12) +
+    theme(legend.position = "right")
+  
+  if (!is.null(ann_df)) {
+    p <- p + geom_text(
+      data = ann_df,
+      aes(x = x, y = y, label = label, color = surface),
+      inherit.aes = FALSE, hjust = 1, vjust = 0, fontface = "bold",
+      size = rho_size, show.legend = FALSE
+    )
+  }
+  
+  p
+}
+
+#Legend extraction and shared-axis label trick
+
+common_y <- range(shape_data$velocity_norm, na.rm = TRUE)
+
+pA <- plot_shape_overlay(shape_data, elongation,  "Elongation (Width/Length)",
+                         y_range = common_y, title = "A",
+                         rho_mode = "auto", beta_mode = "auto")
+pB <- plot_shape_overlay(shape_data, flatness,    "Flatness (Height/Width)",
+                         y_range = common_y, title = "B",
+                         rho_mode = "auto", beta_mode = "auto")
+pC <- plot_shape_overlay(shape_data, Sphericity,  "Sphericity",
+                         y_range = common_y, title = "C",
+                         rho_mode = "auto", beta_mode = "auto")
+pD <- plot_shape_overlay(shape_data, Convexity,   "Convexity",
+                         y_range = common_y, title = "D",
+                         rho_mode = "auto", beta_mode = "auto")
+
+#Extract a single legend to place as a right column
+legend_g <- cowplot::get_legend(pA)
+
+#Remove individual legends and y-axis title
+strip_y <- theme(axis.title.y = element_blank(),
+                 axis.title.y.right = element_blank())
+
+pA_n <- pA + strip_y + theme(legend.position = "none")
+pB_n <- pB + strip_y + theme(legend.position = "none")
+pC_n <- pC + strip_y + theme(legend.position = "none")
+pD_n <- pD + strip_y + theme(legend.position = "none")
+
+#Place new single y-axis title
+y_title <- ggplot() +
+  annotate("text", x = 0, y = 0.5,
+           label = "Velocity (variation from mean, by size)",
+           angle = 90, vjust = 0.5, fontface = "bold") +
+  theme_void() +
+  theme(plot.margin = margin(5.5, 5.5, 5.5, 5.5))
+
+#Stitch plots
+panel_grid <- (pA_n | pB_n) / (pC_n | pD_n)
+
+final <- (y_title | panel_grid | legend_g) +
+  patchwork::plot_layout(widths = c(0.08, 1, 0.20))  #Adjust to add/remove gap
+
+#View
+final
+
+#Save
+ggsave("figures/shape_factors.png", final, width = 7, height = 5, dpi = 600, bg = "white")
+
+
+
+
+
+
 

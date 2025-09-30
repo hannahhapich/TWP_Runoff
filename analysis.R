@@ -748,24 +748,8 @@ cor.test(conc_shape$Convexity, conc_shape$velocity_norm, method = "spearman") #r
 lm(velocity_norm ~ elongation + flatness + Sphericity + Convexity, data = sand_shape)
 lm(velocity_norm ~ elongation + flatness + Sphericity + Convexity, data = conc_shape)
 
-#Plot any variables with rho > 0.1
+#Join shape data
 shape_data <- rbind(sand_shape, conc_shape)
-ggplot(shape_data, aes(x = elongation, y = velocity_norm)) +
-  geom_smooth(method = "lm", se = TRUE, color = "blue") +
-  ylim(min(shape_data$velocity_norm), max(shape_data$velocity_norm)) +
-  facet_wrap(~surface)
-ggplot(shape_data, aes(x = flatness, y = velocity_norm)) +
-  geom_smooth(method = "lm", se = TRUE, color = "blue") +
-  ylim(min(shape_data$velocity_norm), max(shape_data$velocity_norm)) +
-  facet_wrap(~surface)
-ggplot(shape_data, aes(x = Sphericity, y = velocity_norm)) +
-  geom_smooth(method = "lm", se = TRUE, color = "blue") +
-  ylim(min(shape_data$velocity_norm), max(shape_data$velocity_norm)) +
-  facet_wrap(~surface)
-ggplot(shape_data, aes(x = Convexity, y = velocity_norm)) +
-  geom_smooth(method = "lm", se = TRUE, color = "blue") +
-  ylim(min(shape_data$velocity_norm), max(shape_data$velocity_norm)) +
-  facet_wrap(~surface)
 
 
 #Significance testing ----
@@ -834,7 +818,7 @@ write.csv(param_table_coupled, "data/output_data/muthumasy_model_parameters.csv"
 write.csv(mass_qtile_summary, "data/output_data/quartile_mass_flux.csv" , row.names = F)
 write.csv(sample_mass_cumulative, "data/output_data/mass_cumulative.csv" , row.names = F)
 write.csv(runoff_data, "data/output_data/runoff_data_vol.csv" , row.names = F)
-
+write.csv(shape_data, "data/output_data/shape_data.csv", row.names = F)
 
 
 
