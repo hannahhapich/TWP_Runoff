@@ -333,7 +333,9 @@ plot_perc_mobil_grouped <- function(df, kind = c("count","volume"), diamond_gap 
     theme(
       panel.grid.minor = element_blank(),
       strip.text = element_text(face = "bold"),
-        panel.spacing.y = unit(1.4, "lines")
+      panel.spacing.y = unit(1.4, "lines"),
+      plot.subtitle= element_text(hjust = 0.5,  # center subtitle
+                                  margin = margin(b = 6))
     )
 }
 
@@ -354,9 +356,116 @@ ggsave("figures/psa_mobilized_vol.png", p_mobil_volume, width = 9, height = 6, d
 
 
 
+#Heatmap for flow depth ----
+flow_data <- flux_data %>% group_by(slope, rainfall) %>%
+  summarize(v_cm_s = mean(V) * 100,
+            depth_mm = mean(depth_mm)) %>%
+  mutate(
+    slope_f    = factor(slope, levels = c(5, 10, 15)),
+    rainfall_f = factor(rainfall, levels = c("low", "med", "high"))
+  )
+
+#Function to make one 3×3 heatmap figure (faceted by surface rows)
+single_heatmap <- function(df, value_col, title, limits, palette = "inferno", direction = 1) {
+  ggplot(df, aes(x = slope_f, y = rainfall_f, fill = .data[[value_col]])) +
+    geom_tile(color = "white", linewidth = 0.7) +
+    scale_x_discrete(name = "Slope",    labels = c(`5`="5º", `10`="10º", `15`="15º")) +
+    scale_y_discrete(name = "Rainfall", labels = c(low="Low", med="Medium", high="High")) +
+    scale_fill_viridis_c(option = palette, limits = limits, name = title, direction = direction) +  # <- many colors
+    coord_equal() +
+    theme_minimal(base_size = 12) +
+    theme(panel.grid = element_blank(),
+          strip.text.y = element_text(face = "bold"),
+          axis.title.x = element_text(margin = margin(t = 6)),
+          axis.title.y = element_text(margin = margin(r = 8)),
+          legend.title = element_text(face = "bold"))
+}
+
+
+#Set limits
+flow_lim <- range(flow_data$depth_mm, na.rm = TRUE)
+vel_lim <- range(flow_data$v_cm_s, na.rm = TRUE)
+
+#Make individual plots
+p_flow <- single_heatmap(flow_data, "depth_mm","Flow Depth (mm)", flow_lim, palette = "magma")
+p_vel <- single_heatmap(flow_data, "v_cm_s","Flow Velocity (cm/s)", vel_lim, palette = "magma")
+
+#Arrange side-by-side
+heatmaps_flow <- (p_flow + theme(legend.position = "right")) +
+  (p_vel + theme(legend.position = "right")) +
+  plot_layout(ncol = 2, widths = c(1,1), guides = "keep")
+
+#View
+heatmaps_flow
+
+#Save fig
+ggsave("figures/heatmaps_flow.png", heatmaps_flow, width = 9, height = 3, dpi = 600)
 
 
 
 
+#PSD (All) ----
+#Read in data (warning, takes a couple minutes)
+PSA_data <- read.csv("data/input_data/PSA_data.csv")
 
+PSD_data <- PSA_data %>% select(FLength, Volume)
+
+#KDE Function
+kde_all <- function(df, weight_col = NULL, n = 1024, bw_mult = 1.8, x_range = NULL) {
+  df <- df %>% transmute(size = as.numeric(FLength),
+                         w    = if (is.null(weight_col)) 1 else pmax(0, as.numeric(.data[[weight_col]])))
+  df <- df %>% filter(is.finite(size), is.finite(w), w > 0)
+  
+  if (nrow(df) < 10) return(tibble(size_um = numeric(), density = numeric()))
+  
+  if (is.null(x_range)) x_range <- range(df$size, na.rm = TRUE)
+  
+  bw  <- stats::bw.nrd0(df$size) * bw_mult
+  den <- stats::density(df$size,
+                        weights = df$w / sum(df$w),
+                        bw      = bw,
+                        n       = n,
+                        from    = x_range[1],
+                        to      = x_range[2],
+                        cut     = 0)
+  
+  tibble(size_um = den$x, density = den$y)
+}
+
+#Plot builder function
+psd_all_plot <- function(df, kind = c("count","volume"),
+                         bw_mult = 1.8, fill_alpha = 0.22, line_size = 1.1) {
+  kind <- match.arg(kind)
+  
+  #Choose weights & colors
+  weight_col <- if (kind == "count") NULL else "Volume"
+  title_lab  <- if (kind == "count") "PSD (all particles) — by count" else "PSD (all particles) — by volume"
+  pal <- magma(11)
+  col <- if (kind == "count") pal[7] else pal[9]
+  
+  dens <- kde_all(df, weight_col = weight_col, bw_mult = bw_mult, x_range = c(0, 2000))
+  
+  ggplot(dens, aes(size_um, density)) +
+    geom_area(fill = alpha(col, fill_alpha), color = NA) +
+    geom_line(color = col, linewidth = line_size) +
+    labs(title = title_lab, x = "Particle size (µm)", y = "Relative frequency") +
+    theme_minimal(base_size = 12) +
+    theme(panel.grid.minor = element_blank())
+  
+}
+
+#Build plots
+p_psd_count  <- psd_all_plot(PSD_data, "count",  bw_mult = 3)
+p_psd_volume <- psd_all_plot(PSD_data, "volume", bw_mult = 3)
+
+#View
+p_psd_count
+p_psd_volume
+
+#Side-by-side with patchwork
+#library(patchwork); p_psd_count | p_psd_volume
+
+# Save with white background
+ggsave("figures/psd_all_count.png",  p_psd_count,  width = 8, height = 5, dpi = 300, bg = "white")
+ggsave("figures/psd_all_volume.png", p_psd_volume, width = 8, height = 5, dpi = 300, bg = "white")
 
