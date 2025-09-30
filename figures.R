@@ -206,6 +206,10 @@ ggsave("figures/heatmaps.png", heatmaps, width = 9, height = 3, dpi = 600)
 
 
 
+
+
+
+
 #PSA Velocity Quartiles----
 size_levels <- c("<125 µm","125-250 µm","250-500 µm","500-1000 µm",">1000 µm")
 size_cols   <- setNames(
@@ -217,42 +221,52 @@ PSA_clean <- PSA_velocity %>%
   mutate(
     size_class = str_replace_all(size_class, "–", "-"),
     size_f     = factor(size_class, levels = size_levels),
-    rainfall_f = factor(rainfall, levels = c("low","med","high")),
+    rainfall_f = factor(rainfall,
+                        levels = c("low","med","high"),
+                        labels = c("Low","Medium","High")),
     slope_f    = factor(slope, levels = c(5,10,15)),
-    surface_f  = factor(surface, levels = c("sand","concrete"))
+    surface_f  = factor(surface, levels = c("sand","concrete"),
+                        labels = c("Sand","Concrete"))
   )
 
-#Plot function
 plot_psa <- function(df, kind = c("count","volume")) {
   kind <- match.arg(kind)
   
   if (kind == "count") {
-    q25 <- sym("Q25_count_time"); q50 <- sym("Q50_count_time"); q75 <- sym("Q75_count_time")
-    title_lab <- "Particle half load by size ("~Q[25]~", "~Q[50]~", and"~Q[75]~", by count)"
+    q25 <- rlang::sym("Q25_count_time"); q50 <- rlang::sym("Q50_count_time"); q75 <- rlang::sym("Q75_count_time")
+    title_lab <- expression("Particle half load by size ("*Q[25]*", "*Q[50]*", and "*Q[75]*", by count)")
   } else {
-    q25 <- sym("Q25_vol_time");   q50 <- sym("Q50_vol_time");   q75 <- sym("Q75_vol_time")
-    title_lab <- "Particle half load by size ("~Q[25]~", "~Q[50]~", and"~Q[75]~", by volume)"
+    q25 <- rlang::sym("Q25_vol_time");   q50 <- rlang::sym("Q50_vol_time");   q75 <- rlang::sym("Q75_vol_time")
+    title_lab <- expression("Particle half load by size ("*Q[25]*", "*Q[50]*", and "*Q[75]*", by volume)")
   }
   
-  pos <- position_dodge(width = 0.6)  #Controls left-right separation within each size bin
+  # 5 size classes per slope bin → dodge by size (order from size_levels)
+  pos <- position_dodge(width = 0.85)
+  tick_w <- 0.28 #Tick marks
+  line_w <- 0.7
   
-  ggplot(df, aes(x = size_f, y = !!q50,
-                 color = size_f,         #Same color for the three rainfall points within a size bin
-                 shape = rainfall_f,     #Diamond / circle / square
-                 group = rainfall_f)) +
-    geom_errorbar(aes(ymin = !!q25, ymax = !!q75),
-                  position = pos, width = 0.2, linewidth = 0.7) +
-    geom_point(position = pos, size = 3) +
-    facet_grid(rows = vars(surface_f), cols = vars(slope_f)) +
+  ggplot(df, aes(x = slope_f, y = !!q50, color = size_f, group = size_f)) +
+    # vertical line from Q25 to Q75
+    geom_linerange(aes(ymin = !!q25, ymax = !!q75),
+                   position = pos, linewidth = line_w) +
+    # small tick at Q25
+    geom_errorbar(aes(ymin = !!q25, ymax = !!q25),
+                  position = pos, width = tick_w, linewidth = line_w, show.legend = FALSE) +
+    # small tick at Q75
+    geom_errorbar(aes(ymin = !!q75, ymax = !!q75),
+                  position = pos, width = tick_w, linewidth = line_w, show.legend = FALSE) +
+    # Q50 point
+    geom_point(position = pos, size = 2.5) +
+    facet_grid(rows = vars(surface_f), cols = vars(rainfall_f)) +
     scale_color_manual(values = size_cols, name = "Size") +
-    scale_shape_manual(values = c(low = 18, med = 16, high = 15), name = "Rainfall") +
-    labs(x = "Particle size (µm)", y = "Time (min)", title = title_lab) +
+    labs(x = "Slope (°)", y = "Time (min)", title = title_lab, subtitle = "Rainfall Intensity") +
     coord_cartesian(ylim = c(0, NA)) +
     theme_minimal(base_size = 12) +
     theme(
       panel.grid.minor = element_blank(),
       strip.text = element_text(face = "bold"),
-      axis.text.x = element_text(angle = 30, hjust = 1)
+      plot.subtitle= element_text(hjust = 0.5,  # center subtitle
+                                  margin = margin(b = 6))
     )
 }
 
@@ -284,34 +298,42 @@ PSA_perc_clean <- PSA_perc_mobil %>%
     size_class = str_replace_all(size_class, "–", "-"),
     size_f     = factor(size_class, levels = size_levels),
     slope_f    = factor(slope,    levels = c(5, 10, 15)),
-    surface_f  = factor(surface,  levels = c("sand", "concrete")),
-    rainfall_f = factor(rainfall, levels = c("low", "med", "high"))  # L→R inside bins
+    surface_f  = factor(surface, levels = c("sand","concrete"),
+                        labels = c("Sand","Concrete")),
+    rainfall_f = factor(rainfall,
+                        levels = c("low","med","high"),
+                        labels = c("Low","Medium","High"))
   )
+
 
 plot_perc_mobil_grouped <- function(df, kind = c("count","volume"), diamond_gap = 1) {
   kind <- match.arg(kind)
   value_sym <- if (kind == "count") rlang::sym("perc_count_mobilized") else rlang::sym("perc_volume_mobilized")
   title_lab <- if (kind == "count") "Percent mobilized (by count)" else "Percent mobilized (by volume)"
   
-  bar_width <- 0.7
-  pos <- position_dodge2(width = 0.7, padding = 0.2, preserve = "single")  #Dodge by rainfall (3 bars per size bin)
+  # 5 size classes per slope bin → dodge by size
+  bar_width <- 0.75
+  pos <- position_dodge2(width = 0.90, padding = 0.25, preserve = "single")
   
-  ggplot(df, aes(x = size_f, y = !!value_sym, fill = size_f, group = rainfall_f)) +
+  ggplot(df, aes(x = slope_f, y = !!value_sym,
+                 fill = size_f,            # color by size class
+                 group = size_f)) +        # dodge by size within each slope
     geom_col(width = bar_width, position = pos, color = "white", linewidth = 0.3) +
-    #Shape above each bar (same color as bar, shape encodes rainfall)
-    geom_point(aes(y = !!value_sym + diamond_gap, color = size_f, shape = rainfall_f),
-               position = pos, size = 2.25, show.legend = TRUE) +
-    facet_grid(rows = vars(surface_f), cols = vars(slope_f)) +
+    # little diamond above each bar (same color)
+    #geom_point(aes(y = !!value_sym + diamond_gap, color = size_f),
+    #           shape = 18, size = 2, position = pos, show.legend = FALSE) +
+    facet_grid(rows = vars(surface_f), cols = vars(rainfall_f)) +
     scale_fill_manual(values = size_cols, name = "Size") +
     scale_color_manual(values = size_cols, guide = "none") +
-    scale_shape_manual(values = c(low = 18, med = 16, high = 15), name = "Rainfall") +
-    labs(x = "Particle size (µm)", y = "Percent mobilized (%)", title = title_lab) +
-    coord_cartesian(ylim = c(0, 100 + diamond_gap + 1)) +
+    labs(x = "Slope (°)", y = "Percent mobilized (%)", title = title_lab, subtitle = "Rainfall Intensity") +
+    coord_cartesian(ylim = c(20, 100)) +
+    scale_y_continuous(breaks = seq(20, 100, 20),
+                       expand = expansion(mult = c(0, 0), add = 0)) +
     theme_minimal(base_size = 12) +
     theme(
       panel.grid.minor = element_blank(),
       strip.text = element_text(face = "bold"),
-      axis.text.x = element_text(angle = 30, hjust = 1)
+        panel.spacing.y = unit(1.4, "lines")
     )
 }
 
