@@ -34,6 +34,10 @@ runoff_data$density_g_mL[is.na(runoff_data$density_g_mL)] <- mean_density
 # Calculate volume (mL)
 runoff_data$volume_mL <- runoff_data$water_mass_g / runoff_data$density_g_mL
 
+#Join with condition
+runoff_data <- runoff_data %>% 
+  left_join(metadata %>% select(condition, run) %>% distinct(), by = "run")
+
 
 
 
@@ -220,7 +224,8 @@ water_flux <- runoff_data %>%
   mutate(mean_mL_min = ifelse(rainfall == "high", mean_mL_min * 2, mean_mL_min)) %>% #Correcting for high rainfall runoff collections being every 0.5 mins
   mutate(slope_rad = slope * (pi / 180)) %>%
   mutate(projected_area = (7200)*(cos(slope_rad))) %>% #Choi (2016) equation for projected (rain) area, 120 x 60 cm surface = 7200 cm2
-  mutate(avg_mm_min = (mean_mL_min/projected_area)*10)
+  mutate(avg_mm_min = (mean_mL_min/projected_area)*10) %>%
+  left_join(metadata %>% select(condition, run) %>% distinct(), by = "run")
 
 average_water_flux <- water_flux %>%
   group_by(rainfall) %>%
@@ -268,14 +273,14 @@ sample_mass_cumulative <- sample_mass %>%
   group_by(run) %>%
   mutate(start_time_min = as.numeric (start_time_min),
          end_time_min = as.numeric(end_time_min)) %>%
-  arrange(end_time_min, .by_group = TRUE) %>%  # make sure time is sorted
+  arrange(end_time_min, .by_group = TRUE) %>%
+  left_join(metadata %>% select(run, condition), by = "run") %>% #Add condition ID
   mutate(cumulative_mass_g = cumsum(sample_mass_g)) %>%
   ungroup()
 
 w0 = 1 #Initial load, 1 g
 wash_off_mass <- sample_mass_cumulative %>% 
   select(-c(jar_mass_g, jar_and_sample_mass_g, raw_mass_g)) %>%
-  left_join(metadata %>% select(run, condition), by = "run") %>% #Add condition id
   left_join(water_flux %>% select(run, avg_mm_min), by = "run") %>% 
   rename(t = end_time_min, #t = time of wash-off measurement (min)
          i = avg_mm_min, #i = rainfall intensity (mm/min)
@@ -346,7 +351,7 @@ egodawatta_model_results <- map(unique(wash_off_avg$condition), function(cond) {
 })
 
 #Extract parameter table
-param_table <- map_dfr(fits, function(x) {
+param_table <- map_dfr(egodawatta_model_results, function(x) {
   if (is.null(x)) return(NULL)
   df_cond <- dplyr::filter(wash_off_avg, condition == x$condition)
   mod <- x$model
@@ -453,9 +458,13 @@ refit_at_cstar <- function(df_cond, cval) {
 }
 #Apply function and extract parameter table
 param_table_coupled <- wash_off_avg %>%
-  dplyr::group_by(condition) %>%
-  dplyr::group_modify(~ refit_at_cstar(.x, c_star)) %>%
-  dplyr::ungroup()
+  group_by(condition) %>%
+  group_modify(~ refit_at_cstar(.x, c_star)) %>%
+  ungroup()
+
+param_table_coupled <- param_table_coupled %>% 
+  left_join(wash_off_avg %>% select(condition, i_mean) %>% distinct(),
+            by = "condition")
 
 #Per-condition intensity & time horizon
 cond_meta <- wash_off_avg %>%
@@ -467,16 +476,29 @@ cond_meta <- wash_off_avg %>%
   )
 
 #Extract model predictions
-predictions_coupled <- param_table_coupled %>%
-  dplyr::inner_join(cond_meta, by = "condition") %>%
-  purrr::pmap_dfr(function(condition, c_mm, k_prime, f_k, rss, n_points, rse, max_frac, i_val, t_max) {
+params <- param_table_coupled %>%
+  dplyr::inner_join(cond_meta, by = "condition")
+
+predictions_coupled <- params %>%
+  purrr::pmap_dfr(function(condition, c_mm, k_prime, f_k, rss, n_points, rse, max_frac, i_mean, t_max, ...) {
     t_seq <- seq(0, t_max, length.out = 100)
     tibble::tibble(
       condition = condition,
       t = t_seq,
-      pred_frac = f_k * (1 - exp(-k_prime * i_val * t_seq))
+      pred_frac = f_k * (1 - exp(-(k_prime * i_mean) * t_seq))
     )
   })
+
+# predictions_coupled <- param_table_coupled %>%
+#   dplyr::inner_join(cond_meta, by = "condition") %>%
+#   purrr::pmap_dfr(function(condition, c_mm, k_prime, f_k, rss, n_points, rse, max_frac, i_val, t_max) {
+#     t_seq <- seq(0, t_max, length.out = 100)
+#     tibble::tibble(
+#       condition = condition,
+#       t = t_seq,
+#       pred_frac = f_k * (1 - exp(-k_prime * i_val * t_seq))
+#     )
+#   })
 
 #Plot data points vs model predictions for visual confirmation
 ggplot() +
@@ -524,7 +546,7 @@ qtime_mass <- function(dat, time_col = "end_time_min",
 
 #Apply to all runs
 mass_qtile <- sample_mass_Q50 %>%
-  group_by(surface, slope, rainfall, run) %>%
+  group_by(surface, slope, rainfall, run, condition) %>%
   summarise(
     Q25_time_min = qtime_mass(cur_data(), p = 0.25),
     Q50_time_min = qtime_mass(cur_data(), p = 0.50),
@@ -534,16 +556,26 @@ mass_qtile <- sample_mass_Q50 %>%
 
 #Summarize across groups
 mass_qtile_summary <- mass_qtile %>%
-  group_by(surface, slope, rainfall) %>%
-  summarise(
+  group_by(surface, slope, rainfall, condition) %>%
+  summarize(
     n_runs = dplyr::n(),
     across(starts_with("Q"),
            list(mean = ~mean(.x, na.rm = TRUE),
                 sd   = ~sd(.x,   na.rm = TRUE)),
            .names = "{.col}_{.fn}"),
     .groups = "drop"
-  )
+  ) 
 
+#Max wash-off fraction
+max_frac <- sample_mass_Q50 %>% filter(end_time_min == 30) %>% 
+  select(cumulative_mass_g, run, condition) %>%
+  group_by(condition) %>%
+  summarize(
+    max_frac = mean(cumulative_mass_g)
+    )
+
+mass_qtile_summary <- mass_qtile_summary %>% 
+  left_join(max_frac, by = "condition")
 
 
 
@@ -578,6 +610,9 @@ qtime <- function(dat, weight_col = c("count","volume"), p = 0.5) {
 }
 
 ##Calculate count and volume based quantile times ----
+size_breaks <- c(-Inf, 125, 250, 500, 1000, Inf)
+size_labels <- c("<125 µm", "125–250 µm", "250–500 µm", "500–1000 µm", ">1000 µm")
+
 PSA_qtile_times <- mobilized_PSA %>%
   mutate(size_class = cut(FLength, breaks = size_breaks, labels = size_labels, right = TRUE)) %>%
   filter(!is.na(size_class)) %>%
@@ -792,13 +827,13 @@ summary(aov_mobilized_vol)
 
 
 #Data export ----
-write.csv(water_flux, "data/output_data/flux_data.csv")
-write.csv(PSA_qtile_speeds, "data/output_data/PSA_velocity.csv")
-write.csv(percent_mobilized, "data/output_data/PSA_percent_mobilized.csv")
-write.csv(param_table_coupled, "data/output_data/muthumasy_model_parameters.csv")
-write.csv(predictions_coupled, "data/output_data/muthumasy_model_projections.csv")
-write.csv(mass_qtile_summary, "data/output_data/quartile_mass_flux.csv")
-
+write.csv(water_flux, "data/output_data/flux_data.csv", row.names = F)
+write.csv(PSA_qtile_speeds, "data/output_data/PSA_velocity.csv" , row.names = F)
+write.csv(percent_mobilized, "data/output_data/PSA_percent_mobilized.csv" , row.names = F)
+write.csv(param_table_coupled, "data/output_data/muthumasy_model_parameters.csv" , row.names = F)
+write.csv(mass_qtile_summary, "data/output_data/quartile_mass_flux.csv" , row.names = F)
+write.csv(sample_mass_cumulative, "data/output_data/mass_cumulative.csv" , row.names = F)
+write.csv(runoff_data, "data/output_data/runoff_data_vol.csv" , row.names = F)
 
 
 
