@@ -27,7 +27,7 @@ params_surface <- model_params %>%
 
 facet_labels <- list(
   slope_f    = c(`5`="Slope : 5º", `10`="Slope : 10º", `15`="Slope : 15º"),
-  rainfall_f = c(high="Rainfall : High", med="Rainfall : Medium", low="Rainfall : Low"),
+  rainfall_f = c(high="Rainfall: 89 mm/hr", med="Rainfall: 63 mm/hr", low="Rainfall: 36 mm/hr"),
   surface_f = c("Sand","Concrete")
 )
 

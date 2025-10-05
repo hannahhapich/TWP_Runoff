@@ -767,7 +767,7 @@ shape_data <- rbind(sand_shape, conc_shape)
 ###Model parameters ----
 #Data prep
 param_table_coupled <- param_table_coupled %>% 
-  left_join(metadata %>% select(-c(run, replicate)) %>% distinct(), by = "condition")
+  left_join(metadata %>% select(-c(run, replicate, surface)) %>% distinct(), by = "condition")
 
 #Run ANOVA
 #Ensure factors are coded properly
