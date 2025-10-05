@@ -289,7 +289,7 @@ wash_off_mass <- sample_mass_cumulative %>%
 
 #Integrate across replicates
 wash_off_avg <- wash_off_mass %>%
-  group_by(condition, t) %>%
+  group_by(condition, surface, t) %>%
   summarize(
     frac_mean = mean(frac),
     i_mean = mean(i),
@@ -410,7 +410,6 @@ rss_for_condition <- function(df_cond, cval, kprime) {
 fit_kprime_for_c <- function(df_cond, cval) {
   upper <- (1 / cval) - 1e-8
   if (upper <= 0) return(NULL)
-  # 1-D optimize over k' in (0, 1/c)
   opt <- optimize(function(kp) rss_for_condition(df_cond, cval, kp),
                   interval = c(1e-8, upper))
   list(kprime = opt$minimum,
@@ -418,35 +417,50 @@ fit_kprime_for_c <- function(df_cond, cval) {
        fcap   = cval * opt$minimum)
 }
 
-#Solve for c and find min value (c*)
+#Solve for c and find min value (c*) for each surface
 c_grid <- seq(1, 20, by = 0.2)
-fit_for_c <- function(cval) {
-  fits <- wash_off_avg %>%
-    group_by(condition) %>%
-    group_map(~{
+
+#For one surface's data frame, sweep c and sum RSS across its conditions
+fit_for_c_one_surface <- function(df_surface, cval) {
+  fits <- df_surface %>%
+    dplyr::group_by(condition) %>%
+    dplyr::group_map(~{
       f <- fit_kprime_for_c(.x, cval)
       if (is.null(f)) return(NULL)
-      tibble(condition = .y$condition, kprime = f$kprime, fcap = f$fcap, rss = f$rss)
-    }) %>% bind_rows()
-  tibble(c = cval,
-         total_rss = sum(fits$rss),
-         n_cond = nrow(fits))
+      tibble::tibble(condition = .y$condition, kprime = f$kprime,
+                     fcap = f$fcap, rss = f$rss)
+    }) %>% dplyr::bind_rows()
+  tibble::tibble(c = cval,
+                 total_rss = sum(fits$rss),
+                 n_cond = nrow(fits))
 }
 
-c_sweep <- map_dfr(c_grid, fit_for_c)
-c_star <- c_sweep$c[which.min(c_sweep$total_rss)]
-print(c_star) #c* = 4.2 mm
+#Sweep c for each surface and pick the minimizing c* for that surface
+c_star_by_surface <- wash_off_avg %>%
+  dplyr::group_by(surface) %>%
+  dplyr::group_map(~{
+    df_surf <- .x
+    c_sweep_surf <- purrr::map_dfr(
+      c_grid,
+      ~fit_for_c_one_surface(df_surf, .x) 
+    )
+    c_star <- c_sweep_surf$c[which.min(c_sweep_surf$total_rss)]
+    tibble::tibble(surface = .y$surface[[1]], c_star = c_star)
+  }) %>%
+  dplyr::bind_rows()
 
-#Fit all conditions with c*
+print(c_star_by_surface) #c*(concrete) = 3.8; c*(sand) = 4.8
+
+#Function to fit all conditions with surface specific c*
 refit_at_cstar <- function(df_cond, cval) {
   f <- fit_kprime_for_c(df_cond, cval)
-  if (is.null(f)) return(tibble())
+  if (is.null(f)) return(tibble::tibble())
   rss <- f$rss
   n   <- nrow(df_cond)
   p   <- 1L
   rse <- sqrt(rss / pmax(1, n - p))
   
-  tibble(
+  tibble::tibble(
     c_mm      = cval,
     k_prime   = f$kprime,
     f_k       = f$fcap,
@@ -456,15 +470,20 @@ refit_at_cstar <- function(df_cond, cval) {
     max_frac  = max(df_cond$frac_mean, na.rm = TRUE)
   )
 }
-#Apply function and extract parameter table
-param_table_coupled <- wash_off_avg %>%
-  group_by(condition) %>%
-  group_modify(~ refit_at_cstar(.x, c_star)) %>%
-  ungroup()
 
-param_table_coupled <- param_table_coupled %>% 
-  left_join(wash_off_avg %>% select(condition, i_mean) %>% distinct(),
-            by = "condition")
+#Apply function and extract parameters
+param_table_coupled <- wash_off_avg %>%
+  dplyr::left_join(c_star_by_surface, by = "surface") %>%
+  dplyr::group_by(condition, surface, c_star) %>%
+  dplyr::group_modify(~ refit_at_cstar(.x, unique(.y$c_star))) %>%
+  dplyr::ungroup()
+
+#Add rain intensity per condition
+param_table_coupled <- param_table_coupled %>%
+  dplyr::left_join(
+    wash_off_avg %>% dplyr::select(condition, i_mean) %>% dplyr::distinct(),
+    by = "condition"
+  )
 
 #Per-condition intensity & time horizon
 cond_meta <- wash_off_avg %>%
@@ -480,25 +499,16 @@ params <- param_table_coupled %>%
   dplyr::inner_join(cond_meta, by = "condition")
 
 predictions_coupled <- params %>%
-  purrr::pmap_dfr(function(condition, c_mm, k_prime, f_k, rss, n_points, rse, max_frac, i_mean, t_max, ...) {
+  purrr::pmap_dfr(function(condition, c_mm, k_prime, f_k, rss, n_points, rse,
+                           max_frac, i_mean, t_max, surface, c_star, ...) {
     t_seq <- seq(0, t_max, length.out = 100)
     tibble::tibble(
       condition = condition,
-      t = t_seq,
+      surface   = surface,
+      t         = t_seq,
       pred_frac = f_k * (1 - exp(-(k_prime * i_mean) * t_seq))
     )
   })
-
-# predictions_coupled <- param_table_coupled %>%
-#   dplyr::inner_join(cond_meta, by = "condition") %>%
-#   purrr::pmap_dfr(function(condition, c_mm, k_prime, f_k, rss, n_points, rse, max_frac, i_val, t_max) {
-#     t_seq <- seq(0, t_max, length.out = 100)
-#     tibble::tibble(
-#       condition = condition,
-#       t = t_seq,
-#       pred_frac = f_k * (1 - exp(-k_prime * i_val * t_seq))
-#     )
-#   })
 
 #Plot data points vs model predictions for visual confirmation
 ggplot() +
@@ -506,7 +516,7 @@ ggplot() +
   geom_line(data = predictions_coupled, aes(x = t, y = pred_frac), color = "red") +
   facet_wrap(~ condition, scales = "free_x") +
   labs(x = "Time (min)", y = "Wash-off fraction",
-       title = "Coupled model (global c*): observed vs fitted by condition") +
+       title = "Coupled model (surface-specific c*): observed vs fitted by condition") +
   theme_minimal()
 
 
