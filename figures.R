@@ -86,7 +86,7 @@ plot_surface <- function(surface_type = "sand") {
                             curves_surface %>% filter(condition == first(condition)) %>% pull(pred_frac)), na.rm = TRUE),
       .groups = "drop"
     ) %>%
-    left_join(params_surface %>% select(condition, k_prime, rse), by = "condition")
+    left_join(params_surface %>% select(condition, k_prime, f_k, rse), by = "condition")
   
   annos <- annos %>%
     mutate(y_anno = if_else(condition == 4 | condition == 5 | condition == 6, y_anno + 0.5, y_anno),
@@ -118,9 +118,10 @@ plot_surface <- function(surface_type = "sand") {
     geom_text(data = annos,
               aes(x = x_anno, y = y_anno,
                   label = paste0("k' = ", round(k_prime, 3),
+                                 "\nf(k) = ", format(f_k, digits = 3, nsmall = 3),
                                  "\nRSE = ", format(rse, digits = 3, nsmall = 3))),
               hjust = 0,
-              size = 4) +
+              size = 3.3) +
     facet_grid(
       rows = vars(rainfall_f),
       cols = vars(slope_f),
@@ -194,29 +195,75 @@ make_heatmap <- function(df, value_col, title, limits, palette = "inferno", dire
 
 #Set limits
 kp_lim <- range(params$k_prime, na.rm = TRUE)
+fk_lim <- range(params$f_k, na.rm = TRUE)
 q50_lim <- range(q50_mass_flux$Q50_time_min_mean, na.rm = TRUE)
 max_frac_lim <- range(q50_mass_flux$max_frac, na.rm = TRUE)
 
 #Make individual plots
 p_kp <- make_heatmap(params, "k_prime","k′",   kp_lim, palette = "magma")
+p_fk <- make_heatmap(params, "f_k","f(k)",   fk_lim, palette = "magma")
 p_q50 <- make_heatmap(q50_mass_flux, "Q50_time_min_mean","Q50 (min)",   q50_lim, palette = "magma", direction = -1)
 p_max_frac <- make_heatmap(q50_mass_flux, "max_frac","Fw",   max_frac_lim, palette = "magma")
 
 #Arrange side-by-side
 heatmaps <- (p_kp + theme(legend.position = "right")) +
+  (p_fk + theme(legend.position = "right")) +
   (p_q50 + theme(legend.position = "right")) +
   (p_max_frac + theme(legend.position = "right")) +
-  plot_layout(ncol = 3, widths = c(1,1,1), guides = "keep")
+  plot_layout(ncol = 2, widths = c(1,1), guides = "keep")
 
 #View
 heatmaps
 
 #Save figs
-ggsave("figures/heatmaps.png", heatmaps, width = 9, height = 3, dpi = 600)
+ggsave("figures/heatmaps.png", heatmaps, width = 9, height = 7, dpi = 600)
 #ggsave("figures/heatmaps.pdf",  heatmaps, width = 10, height = 8)
 
 
+#Heatmap for flow depth ----
+flow_data <- flux_data %>% group_by(slope, rainfall) %>%
+  summarize(v_cm_s = mean(V) * 100,
+            depth_mm = mean(depth_mm)) %>%
+  mutate(
+    slope_f    = factor(slope, levels = c(5, 10, 15)),
+    rainfall_f = factor(rainfall, levels = c("low", "med", "high"))
+  )
 
+#Function to make one 3×3 heatmap figure (faceted by surface rows)
+single_heatmap <- function(df, value_col, title, limits, palette = "inferno", direction = 1) {
+  ggplot(df, aes(x = slope_f, y = rainfall_f, fill = .data[[value_col]])) +
+    geom_tile(color = "white", linewidth = 0.7) +
+    scale_x_discrete(name = "Slope",    labels = c(`5`="5º", `10`="10º", `15`="15º")) +
+    scale_y_discrete(name = "Rainfall", labels = c(low="Low", med="Medium", high="High")) +
+    scale_fill_viridis_c(option = palette, limits = limits, name = title, direction = direction) +  # <- many colors
+    coord_equal() +
+    theme_minimal(base_size = 12) +
+    theme(panel.grid = element_blank(),
+          strip.text.y = element_text(face = "bold"),
+          axis.title.x = element_text(margin = margin(t = 6)),
+          axis.title.y = element_text(margin = margin(r = 8)),
+          legend.title = element_text(face = "bold"))
+}
+
+
+#Set limits
+flow_lim <- range(flow_data$depth_mm, na.rm = TRUE)
+vel_lim <- range(flow_data$v_cm_s, na.rm = TRUE)
+
+#Make individual plots
+p_flow <- single_heatmap(flow_data, "depth_mm","Flow Depth (mm)", flow_lim, palette = "magma")
+p_vel <- single_heatmap(flow_data, "v_cm_s","Flow Velocity (cm/s)", vel_lim, palette = "magma")
+
+#Arrange side-by-side
+heatmaps_flow <- (p_flow + theme(legend.position = "right")) +
+  (p_vel + theme(legend.position = "right")) +
+  plot_layout(ncol = 2, widths = c(1,1), guides = "keep")
+
+#View
+heatmaps_flow
+
+#Save fig
+ggsave("figures/heatmaps_flow.png", heatmaps_flow, width = 9, height = 3, dpi = 600)
 
 
 
@@ -364,53 +411,6 @@ ggsave("figures/psa_mobilized_count.png", p_mobil_count, width = 9, height = 6, 
 
 ggsave("figures/psa_mobilized_vol.png", p_mobil_volume, width = 9, height = 6, dpi = 600, bg = "white")
 #ggsave("figures/psa_quartile_vol.pdf",  p_mobil_volume, width = 9, height = 6)
-
-
-
-#Heatmap for flow depth ----
-flow_data <- flux_data %>% group_by(slope, rainfall) %>%
-  summarize(v_cm_s = mean(V) * 100,
-            depth_mm = mean(depth_mm)) %>%
-  mutate(
-    slope_f    = factor(slope, levels = c(5, 10, 15)),
-    rainfall_f = factor(rainfall, levels = c("low", "med", "high"))
-  )
-
-#Function to make one 3×3 heatmap figure (faceted by surface rows)
-single_heatmap <- function(df, value_col, title, limits, palette = "inferno", direction = 1) {
-  ggplot(df, aes(x = slope_f, y = rainfall_f, fill = .data[[value_col]])) +
-    geom_tile(color = "white", linewidth = 0.7) +
-    scale_x_discrete(name = "Slope",    labels = c(`5`="5º", `10`="10º", `15`="15º")) +
-    scale_y_discrete(name = "Rainfall", labels = c(low="Low", med="Medium", high="High")) +
-    scale_fill_viridis_c(option = palette, limits = limits, name = title, direction = direction) +  # <- many colors
-    coord_equal() +
-    theme_minimal(base_size = 12) +
-    theme(panel.grid = element_blank(),
-          strip.text.y = element_text(face = "bold"),
-          axis.title.x = element_text(margin = margin(t = 6)),
-          axis.title.y = element_text(margin = margin(r = 8)),
-          legend.title = element_text(face = "bold"))
-}
-
-
-#Set limits
-flow_lim <- range(flow_data$depth_mm, na.rm = TRUE)
-vel_lim <- range(flow_data$v_cm_s, na.rm = TRUE)
-
-#Make individual plots
-p_flow <- single_heatmap(flow_data, "depth_mm","Flow Depth (mm)", flow_lim, palette = "magma")
-p_vel <- single_heatmap(flow_data, "v_cm_s","Flow Velocity (cm/s)", vel_lim, palette = "magma")
-
-#Arrange side-by-side
-heatmaps_flow <- (p_flow + theme(legend.position = "right")) +
-  (p_vel + theme(legend.position = "right")) +
-  plot_layout(ncol = 2, widths = c(1,1), guides = "keep")
-
-#View
-heatmaps_flow
-
-#Save fig
-ggsave("figures/heatmaps_flow.png", heatmaps_flow, width = 9, height = 3, dpi = 600)
 
 
 
