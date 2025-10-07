@@ -259,10 +259,9 @@ water_flux <- water_flux %>%
   mutate(S = tan(slope_rad)) %>% #Dimensionless slope
   mutate(y = ((3*v*q)/(g*S))^(1/3)) %>% #Flow depth in m
   mutate(depth_mm = y*1000, #Flow depth converted to mm
-         V = q/y) #Flow velocity in m/s
+         V = q/y) %>% #Flow velocity in m/s
+  left_join(metadata %>% select(run, surface) %>% distinct(), by = "run")
   
-
-
 
 
 
@@ -408,7 +407,7 @@ rss_for_condition <- function(df_cond, cval, kprime) {
 }
 
 fit_kprime_for_c <- function(df_cond, cval) {
-  upper <- (1 / cval) - 1e-8
+  upper <- (1 / cval) - 1e-12 #c*k < 1 (small buffer added so it doesn't equal 1)
   if (upper <= 0) return(NULL)
   opt <- optimize(function(kp) rss_for_condition(df_cond, cval, kp),
                   interval = c(1e-8, upper))
@@ -436,20 +435,63 @@ fit_for_c_one_surface <- function(df_surface, cval) {
 }
 
 #Sweep c for each surface and pick the minimizing c* for that surface
-c_star_by_surface <- wash_off_avg %>%
+# c_star_by_surface <- wash_off_avg %>%
+#   dplyr::group_by(surface) %>%
+#   dplyr::group_map(~{
+#     df_surf <- .x
+#     c_sweep_surf <- purrr::map_dfr(
+#       c_grid,
+#       ~fit_for_c_one_surface(df_surf, .x) 
+#     )
+#     c_star <- c_sweep_surf$c[which.min(c_sweep_surf$total_rss)]
+#     tibble::tibble(surface = .y$surface[[1]], c_star = c_star)
+#   }) %>%
+#   dplyr::bind_rows()
+
+#Sweep c for each surface and pick the minimizing c* for that surface, save all data
+rss_sweeps_by_surface <- wash_off_avg %>%
   dplyr::group_by(surface) %>%
   dplyr::group_map(~{
     df_surf <- .x
-    c_sweep_surf <- purrr::map_dfr(
-      c_grid,
-      ~fit_for_c_one_surface(df_surf, .x) 
-    )
-    c_star <- c_sweep_surf$c[which.min(c_sweep_surf$total_rss)]
-    tibble::tibble(surface = .y$surface[[1]], c_star = c_star)
+    purrr::map_dfr(c_grid, ~fit_for_c_one_surface(df_surf, .x)) %>%
+      dplyr::mutate(surface = .y$surface[[1]])
   }) %>%
   dplyr::bind_rows()
 
+#Extract the minimizing point (c* and its RSS) for each surface
+c_star_by_surface <- rss_sweeps_by_surface %>%
+  dplyr::group_by(surface) %>%
+  dplyr::slice_min(total_rss, n = 1, with_ties = FALSE) %>%
+  dplyr::rename(c_star = c, rss_min = total_rss)
+
 print(c_star_by_surface) #c*(concrete) = 3.8; c*(sand) = 4.8
+
+#Plot total RSS vs c, faceted by surface, with c* shown
+p_rss_by_surface <- ggplot(rss_sweeps_by_surface,
+                           aes(x = c, y = total_rss)) +
+  geom_line(linewidth = 0.7) +
+  facet_wrap(~ surface, scales = "free_y") +
+  geom_vline(data = c_star_by_surface,
+             aes(xintercept = c_star),
+             linetype = 2) +
+  geom_point(data = c_star_by_surface,
+             aes(x = c_star, y = rss_min),
+             size = 2) +
+  ggrepel::geom_label_repel(
+    data = c_star_by_surface,
+    aes(x = c_star, y = rss_min,
+        label = paste0("c* = ", signif(c_star, 3))),
+    min.segment.length = 0
+  ) +
+  labs(title = "Total RSS vs c (per surface)",
+       x = "c (mm)",
+       y = "Total residual sum-of-squares") +
+  theme_bw()
+
+#Print and save figure
+print(p_rss_by_surface)
+ggsave("figures/c_star_RSS.png", p_rss_by_surface, width = 7, height = 5, dpi = 600)
+
 
 #Function to fit all conditions with surface specific c*
 refit_at_cstar <- function(df_cond, cval) {
