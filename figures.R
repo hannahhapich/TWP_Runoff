@@ -26,7 +26,7 @@ params_surface <- model_params %>%
   )
 
 facet_labels <- list(
-  slope_f    = c(`5`="Slope : 5º", `10`="Slope : 10º", `15`="Slope : 15º"),
+  slope_f    = c(`5`="Slope : 5º (9%)", `10`="Slope : 10º (18%)", `15`="Slope : 15º (27%)"),
   rainfall_f = c(high="Rainfall: 89 mm/hr", med="Rainfall: 63 mm/hr", low="Rainfall: 36 mm/hr"),
   surface_f = c("Sand","Concrete")
 )
@@ -117,8 +117,8 @@ plot_surface <- function(surface_type = "sand") {
     #Annotations
     geom_text(data = annos,
               aes(x = x_anno, y = y_anno,
-                  label = paste0("k' = ", round(k_prime, 3),
-                                 "\nf(k) = ", format(f_k, digits = 3, nsmall = 3),
+                  label = paste0("f(k) = ", format(f_k, digits = 3, nsmall = 3),
+                                 "\nk' = ", round(k_prime, 3),
                                  "\nRSE = ", format(rse, digits = 3, nsmall = 3))),
               hjust = 0,
               size = 3.3) +
@@ -223,7 +223,8 @@ ggsave("figures/heatmaps.png", heatmaps, width = 9, height = 7, dpi = 600)
 #Heatmap for flow depth ----
 flow_data <- flux_data %>% group_by(slope, rainfall) %>%
   summarize(v_cm_s = mean(V) * 100,
-            depth_mm = mean(depth_mm)) %>%
+            depth_mm = mean(depth_mm),
+            tau_avg = mean(tau)) %>%
   mutate(
     slope_f    = factor(slope, levels = c(5, 10, 15)),
     rainfall_f = factor(rainfall, levels = c("low", "med", "high"))
@@ -249,21 +250,24 @@ single_heatmap <- function(df, value_col, title, limits, palette = "inferno", di
 #Set limits
 flow_lim <- range(flow_data$depth_mm, na.rm = TRUE)
 vel_lim <- range(flow_data$v_cm_s, na.rm = TRUE)
+tau_lim <- range(flow_data$tau_avg, na.rm = TRUE)
 
 #Make individual plots
 p_flow <- single_heatmap(flow_data, "depth_mm","Flow Depth (mm)", flow_lim, palette = "magma")
 p_vel <- single_heatmap(flow_data, "v_cm_s","Flow Velocity (cm/s)", vel_lim, palette = "magma")
+p_tau <- single_heatmap(flow_data, "tau_avg","Shear Stress (Pa)", tau_lim, palette = "magma")
 
 #Arrange side-by-side
 heatmaps_flow <- (p_flow + theme(legend.position = "right")) +
   (p_vel + theme(legend.position = "right")) +
-  plot_layout(ncol = 2, widths = c(1,1), guides = "keep")
+  (p_tau + theme(legend.position = "right")) +
+  plot_layout(ncol = 1, widths = c(1), guides = "keep")
 
 #View
 heatmaps_flow
 
 #Save fig
-ggsave("figures/heatmaps_flow.png", heatmaps_flow, width = 9, height = 3, dpi = 600)
+ggsave("figures/heatmaps_flow.png", heatmaps_flow, width = 5, height = 7, dpi = 600)
 
 
 

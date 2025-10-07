@@ -253,6 +253,12 @@ water_flux <- water_flux %>%
 print(min(water_flux$Re)) #Min Re
 print(max(water_flux$Re)) #Max Re
 
+#Calculate mean density
+density_mean_run <- runoff_data %>% group_by(run) %>% 
+  summarize(density_mean_g_mL = mean(runoff_data$density_g_mL))
+
+rho <- mean(density_mean_run$density_mean_g_mL) *1000 #kg/m^3 (average water density)
+
 #Calculate flow depth with laminar overland flow equation
 g = 9.81 #Acceleration due to gravity (9.81 m/s2)
 water_flux <- water_flux %>%
@@ -260,7 +266,8 @@ water_flux <- water_flux %>%
   mutate(y = ((3*v*q)/(g*S))^(1/3)) %>% #Flow depth in m
   mutate(depth_mm = y*1000, #Flow depth converted to mm
          V = q/y) %>% #Flow velocity in m/s
-  left_join(metadata %>% select(run, surface) %>% distinct(), by = "run")
+  left_join(metadata %>% select(run, surface) %>% distinct(), by = "run") %>%
+  mutate(tau = g * rho * y * S)
   
 
 
