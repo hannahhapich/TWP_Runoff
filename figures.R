@@ -271,6 +271,87 @@ ggsave("figures/heatmaps_flow.png", heatmaps_flow, width = 5, height = 7, dpi = 
 
 
 
+#Parameters vs flow conditions----
+#Prep data
+flux_by_cond <- flux_data %>% 
+  group_by(condition, rainfall, slope, surface) %>%
+  summarize(depth = mean(depth_mm),
+            velocity = mean(V) * 100,
+            shear = mean(tau)) %>%
+  left_join(params %>% select(f_k, k_prime, condition, max_frac), by = "condition") %>%
+  left_join(q50_mass_flux %>% select(Q50_time_min_mean, condition), by = "condition")
+
+#Set colors + shapes
+mcols <- viridisLite::magma(100)
+surf_cols   <- c(concrete = mcols[20], sand = mcols[60])
+surf_shapes <- c(concrete = 16,        sand = 17)  # 16 = filled circle, 17 = filled triangle
+
+#Labels for each variable
+label_map <- c(
+  k_prime = "k'",
+  f_k = "f(k)",
+  max_frac = "Fw",
+  Q50_time_min_mean = "Q50 (min)",
+  depth = "Flow depth (mm)",
+  velocity = "Flow velocity (cm/s)",
+  shear = "Shear stress (Pa)"
+)
+
+#Plot function
+make_xy_plot <- function(df, xvar, yvar) {
+  ggplot(df, aes_string(x = xvar, y = yvar, color = "surface", shape = "surface")) +
+    geom_point(size = 3) +
+    scale_color_manual(values = surf_cols) +
+    scale_shape_manual(values = surf_shapes) +
+    labs(
+      x = label_map[[xvar]],
+      y = label_map[[yvar]],
+      color = "Surface",
+      shape = "Surface",
+      title = paste0(label_map[[yvar]], " vs ", label_map[[xvar]])
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(legend.position = "right",
+          plot.title = element_text(face = "bold"))
+}
+
+# ---- Build all 9 combinations ----
+x_vars <- c("depth", "velocity", "shear")
+y_vars <- c("k_prime", "f_k", "Q50_time_min_mean", "max_frac")
+
+plots_12 <- cross2(x_vars, y_vars) |>
+  imap(function(vars, i) {
+    x <- vars[[1]]; y <- vars[[2]]
+    p <- make_xy_plot(flux_by_cond, x, y)
+    attr(p, "plot_name") <- paste0("p_", y, "_vs_", x)
+    p
+  })
+
+#Print one-by-one
+for (p in plots_12) print(p)
+
+#Correlation tests
+cor.test(flux_by_cond$depth, flux_by_cond$k_prime, method = "spearman") #rho = 0.3477812
+cor.test(flux_by_cond$velocity, flux_by_cond$k_prime, method = "spearman") #rho = 0.1455108
+cor.test(flux_by_cond$shear, flux_by_cond$k_prime, method = "spearman") #rho = -0.07327141
+cor.test(flux_by_cond$depth, flux_by_cond$f_k, method = "spearman") #rho = 0.6697626
+cor.test(flux_by_cond$velocity, flux_by_cond$f_k, method = "spearman") #rho = 0.2899897
+cor.test(flux_by_cond$shear, flux_by_cond$f_k, method = "spearman") #rho = -0.1021672
+cor.test(flux_by_cond$depth, flux_by_cond$Q50_time_min_mean, method = "spearman") #rho = -0.7358101
+cor.test(flux_by_cond$velocity, flux_by_cond$Q50_time_min_mean, method = "spearman") #rho = -0.620227
+cor.test(flux_by_cond$shear, flux_by_cond$Q50_time_min_mean, method = "spearman") #rho = -0.1331269
+cor.test(flux_by_cond$depth, flux_by_cond$max_frac, method = "spearman") #rho = 0.5892673
+cor.test(flux_by_cond$velocity, flux_by_cond$max_frac, method = "spearman") #rho = 0.4365325
+cor.test(flux_by_cond$shear, flux_by_cond$max_frac, method = "spearman") #rho = 0.07327141
+
+#Name plots + save significant ones
+names(plots_12) <- sapply(plots_12, function(p) attr(p, "plot_name"))
+ggsave("figures/f_k_vs_depth.png", plots_12$p_f_k_vs_depth, width = 7, height = 5, dpi = 600, bg = "white")
+ggsave("figures/Q50_vs_depth.png", plots_12$p_Q50_time_min_mean_vs_depth, width = 7, height = 5, dpi = 600, bg = "white")
+ggsave("figures/Fw_vs_depth.png", plots_12$p_max_frac_vs_depth, width = 7, height = 5, dpi = 600, bg = "white")
+
+
+
 
 #PSA Velocity Quartiles----
 size_labels <- c("<125 µm","125-250 µm","250-500 µm","500-1000 µm",">1000 µm")
