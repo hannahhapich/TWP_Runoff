@@ -8,7 +8,7 @@ library(rlang)
 
 #Load data ----
 flux_data <- read.csv("data/output_data/flux_data.csv")
-model_params <- read.csv("data/output_data/muthumasy_model_parameters.csv")
+model_params <- read.csv("data/output_data/muthusamy_model_parameters.csv")
 mass_cumulative <- read.csv("data/output_data/mass_cumulative.csv")
 q50_mass_flux <- read.csv("data/output_data/quartile_mass_flux.csv")
 metadata <- read.csv("data/input_data/metadata.csv")
