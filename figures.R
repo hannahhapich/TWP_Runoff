@@ -375,7 +375,7 @@ names(plots_12) <- sapply(plots_12, function(p) attr(p, "plot_name"))
 ggsave("figures/f_k_vs_depth.png", plots_12$p_f_k_vs_depth, width = 7, height = 5, dpi = 600, bg = "white")
 ggsave("figures/Q50_vs_depth.png", plots_12$p_Q50_time_min_mean_vs_depth, width = 7, height = 5, dpi = 600, bg = "white")
 ggsave("figures/Fw_vs_depth.png", plots_12$p_max_frac_vs_depth, width = 7, height = 5, dpi = 600, bg = "white")
-
+ggsave("figures/Q50_vs_velocity.png", plots_12$p_Q50_time_min_mean_vs_velocity, width = 7, height = 5, dpi = 600, bg = "white")
 
 
 
