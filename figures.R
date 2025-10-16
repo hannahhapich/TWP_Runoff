@@ -176,21 +176,31 @@ q50_mass_flux <- q50_mass_flux %>%
 slope_tick_labels <- c(`5` = "5º", `10` = "10º", `15` = "15º")
 rain_tick_labels  <- c(low = "Low", med = "Medium", high = "High")
 
-#Function to make one 3×3 heatmap figure (faceted by surface rows)
+# Function to make one 3×3 heatmap figure (faceted by surface rows)
 make_heatmap <- function(df, value_col, title, limits, palette = "inferno", direction = 1) {
   ggplot(df, aes(x = slope_f, y = rainfall_f, fill = .data[[value_col]])) +
     geom_tile(color = "white", linewidth = 0.7) +
-    facet_grid(rows = vars(surface_f)) +
-    scale_x_discrete(name = "Slope",    labels = c(`5`="5º", `10`="10º", `15`="15º")) +
-    scale_y_discrete(name = "Rainfall", labels = c(low="Low", med="Medium", high="High")) +
-    scale_fill_viridis_c(option = palette, limits = limits, name = title, direction = direction) +  # <- many colors
+    facet_grid(
+      rows = vars(surface_f),
+      labeller = labeller(surface_f = c(sand = "Sand", concrete = "Concrete"))  # ✅ Capitalized labels
+    ) +
+    scale_x_discrete(name = "Slope", labels = slope_tick_labels) +
+    scale_y_discrete(name = "Rainfall", labels = rain_tick_labels) +
+    scale_fill_viridis_c(
+      option = palette,
+      limits = limits,
+      name = title,
+      direction = direction
+    ) +
     coord_equal() +
     theme_minimal(base_size = 12) +
-    theme(panel.grid = element_blank(),
-          strip.text.y = element_text(face = "bold"),
-          axis.title.x = element_text(margin = margin(t = 6)),
-          axis.title.y = element_text(margin = margin(r = 8)),
-          legend.title = element_text(face = "bold"))
+    theme(
+      panel.grid = element_blank(),
+      strip.text.y = element_text(face = "bold"),
+      axis.title.x = element_text(margin = margin(t = 6)),
+      axis.title.y = element_text(margin = margin(r = 8)),
+      legend.title = element_text(face = "bold")
+    )
 }
 
 #Set limits
@@ -234,16 +244,20 @@ flow_data <- flux_data %>% group_by(slope, rainfall) %>%
 single_heatmap <- function(df, value_col, title, limits, palette = "inferno", direction = 1) {
   ggplot(df, aes(x = slope_f, y = rainfall_f, fill = .data[[value_col]])) +
     geom_tile(color = "white", linewidth = 0.7) +
-    scale_x_discrete(name = "Slope",    labels = c(`5`="5º", `10`="10º", `15`="15º")) +
+    scale_x_discrete(name = "Slope", labels = c(`5`="5º", `10`="10º", `15`="15º")) +
     scale_y_discrete(name = "Rainfall", labels = c(low="Low", med="Medium", high="High")) +
-    scale_fill_viridis_c(option = palette, limits = limits, name = title, direction = direction) +  # <- many colors
+    scale_fill_viridis_c(option = palette, limits = limits, name = NULL, direction = direction) + 
     coord_equal() +
+    ggtitle(title) +  # ✅ title above the plot
     theme_minimal(base_size = 12) +
-    theme(panel.grid = element_blank(),
-          strip.text.y = element_text(face = "bold"),
-          axis.title.x = element_text(margin = margin(t = 6)),
-          axis.title.y = element_text(margin = margin(r = 8)),
-          legend.title = element_text(face = "bold"))
+    theme(
+      panel.grid = element_blank(),
+      strip.text.y = element_text(face = "bold"),
+      axis.title.x = element_text(margin = margin(t = 6)),
+      axis.title.y = element_text(margin = margin(r = 8)),
+      legend.title = element_text(face = "bold"),
+      plot.title = element_text(face = "bold", size = 13, hjust = 0.5, margin = margin(b = 6)) # ✅ nice spacing
+    )
 }
 
 
@@ -261,13 +275,25 @@ p_tau <- single_heatmap(flow_data, "tau_avg","Shear Stress (Pa)", tau_lim, palet
 heatmaps_flow <- (p_flow + theme(legend.position = "right")) +
   (p_vel + theme(legend.position = "right")) +
   (p_tau + theme(legend.position = "right")) +
+  plot_layout(ncol = 3, widths = c(1,1,1), guides = "keep")
+
+#View
+heatmaps_flow
+
+#Save fig
+ggsave("figures/heatmaps_flow.png", heatmaps_flow, width = 12, height = 3, dpi = 600)
+
+#Arrange stacked
+heatmaps_flow <- (p_flow + theme(legend.position = "right")) +
+  (p_vel + theme(legend.position = "right")) +
+  (p_tau + theme(legend.position = "right")) +
   plot_layout(ncol = 1, widths = c(1), guides = "keep")
 
 #View
 heatmaps_flow
 
 #Save fig
-ggsave("figures/heatmaps_flow.png", heatmaps_flow, width = 5, height = 7, dpi = 600)
+ggsave("figures/heatmaps_flow_stacked.png", heatmaps_flow, width = 5, height = 7, dpi = 600)
 
 
 
