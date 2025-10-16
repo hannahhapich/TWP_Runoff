@@ -371,14 +371,10 @@ cor.test(flux_by_cond$depth, flux_by_cond$max_frac, method = "spearman") #rho = 
 cor.test(flux_by_cond$velocity, flux_by_cond$max_frac, method = "spearman") #rho = 0.4365325
 cor.test(flux_by_cond$shear, flux_by_cond$max_frac, method = "spearman") #rho = 0.07327141
 
-#Name plots + save significant ones
+#Name plots
 names(plots_12) <- sapply(plots_12, function(p) attr(p, "plot_name"))
-ggsave("figures/f_k_vs_depth.png", plots_12$p_f_k_vs_depth, width = 5, height = 4, dpi = 600, bg = "white")
-ggsave("figures/Q50_vs_depth.png", plots_12$p_Q50_time_min_mean_vs_depth, width = 7, height = 5, dpi = 600, bg = "white")
-ggsave("figures/Fw_vs_depth.png", plots_12$p_max_frac_vs_depth, width = 7, height = 5, dpi = 600, bg = "white")
-ggsave("figures/Q50_vs_velocity.png", plots_12$p_Q50_time_min_mean_vs_velocity, width = 7, height = 5, dpi = 600, bg = "white")
 
-
+#Make grid of significant plots (rho > abs(0.5))
 #Extract a single legend to place as a right column
 legend_g <- cowplot::get_legend(
   plots_12$p_f_k_vs_depth +
