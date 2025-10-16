@@ -5,7 +5,7 @@ library(minpack.lm)
 
 #Load data ----
 runoff_data <- read.csv("data/input_data/runoff_data.csv")
-mass_data <- read.csv("data/input_data/mass_data.csv")
+mass_data <- read.csv("data/input_data/mass_data.csv") #NOTE: sample_mass_g is already blank subtracted
 metadata <- read.csv("data/input_data/metadata.csv")
 PSA_data <- read.csv("data/input_data/PSA_data.csv")
 rain_data <- read.csv("data/input_data/rain_data.csv")
@@ -38,8 +38,37 @@ runoff_data$volume_mL <- runoff_data$water_mass_g / runoff_data$density_g_mL
 runoff_data <- runoff_data %>% 
   left_join(metadata %>% select(condition, run) %>% distinct(), by = "run")
 
+##Approximate runoff steady state ----
+tol   <- 50 # mL tolerance
+t_min <- 1 # search window (min)
+t_max <- 5
 
+runoff_data2 <- runoff_data %>%
+  mutate(end_time_min = as.numeric(end_time_min)) %>%
+  arrange(condition, run, end_time_min)
 
+find_ss_time <- function(df, tol = 50, t_min = 2, t_max = 4) {
+  cands <- df %>% filter(end_time_min >= t_min, end_time_min <= t_max) %>% pull(end_time_min)
+  for (t0 in cands) {
+    tail_vals <- df %>% filter(end_time_min >= t0) %>% pull(volume_mL)
+    mu <- mean(tail_vals, na.rm = TRUE)
+    if (all(abs(tail_vals - mu) <= tol)) return(tibble(steady_state_min = t0))
+  }
+  tibble(steady_state_min = NA_real_)
+}
+
+ss_by_run <- runoff_data2 %>%
+  group_by(condition, run) %>%
+  group_modify(~find_ss_time(.x, tol, t_min, t_max)) %>%
+  ungroup()
+
+ss_by_condition <- ss_by_run %>%
+  group_by(condition) %>%
+  summarise(steady_state_min_mean = mean(steady_state_min, na.rm = TRUE),
+            n_runs_detected     = sum(!is.na(steady_state_min)),
+            .groups = "drop")
+
+ss_by_condition #Max = 2.5 min
 
 
 #Blank calculations ----
@@ -403,7 +432,7 @@ ggplot() +
   theme_minimal()
 
 
-#Coupled model (f(k) and kprime) (Muthumasy et al, 2018) ----
+#Coupled model (f(k) and kprime) (Muthusamy et al, 2018) ----
 #Build functions for iterative solving of c* and k'
 rss_for_condition <- function(df_cond, cval, kprime) {
   i_val <- unique(df_cond$i_mean)[1]
@@ -835,6 +864,20 @@ summary(anova_kprime)
 summary(anova_fk)
 
 ###Q50 and total wash-off fraction ----
+#Data prep
+mass_qtile_summary <- mass_qtile_summary %>% 
+  mutate(
+    slope = factor(slope),
+    rainfall = factor(rainfall),
+    surface = factor(surface)
+  )
+
+#ANOVA tests
+anova_Q50 <- aov(Q50_time_min_mean ~ slope * rainfall * surface, data = mass_qtile_summary)
+anova_Fw     <- aov(max_frac     ~ slope * rainfall * surface, data = mass_qtile_summary)
+
+summary(anova_Q50)
+summary(anova_Fw)
 
 
 ##Particle size significance testing ----
@@ -873,7 +916,7 @@ summary(aov_mobilized_vol)
 write.csv(water_flux, "data/output_data/flux_data.csv", row.names = F)
 write.csv(PSA_qtile_speeds, "data/output_data/PSA_velocity.csv" , row.names = F)
 write.csv(percent_mobilized, "data/output_data/PSA_percent_mobilized.csv" , row.names = F)
-write.csv(param_table_coupled, "data/output_data/muthumasy_model_parameters.csv" , row.names = F)
+write.csv(param_table_coupled, "data/output_data/muthusamy_model_parameters.csv" , row.names = F)
 write.csv(mass_qtile_summary, "data/output_data/quartile_mass_flux.csv" , row.names = F)
 write.csv(sample_mass_cumulative, "data/output_data/mass_cumulative.csv" , row.names = F)
 write.csv(runoff_data, "data/output_data/runoff_data_vol.csv" , row.names = F)
