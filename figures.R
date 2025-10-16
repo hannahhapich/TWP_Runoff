@@ -5,6 +5,7 @@ library(patchwork)
 library(scales)
 library(cowplot)
 library(rlang)
+library(grid)
 
 #Load data ----
 flux_data <- read.csv("data/output_data/flux_data.csv")
@@ -341,7 +342,7 @@ make_xy_plot <- function(df, xvar, yvar) {
           plot.title = element_text(face = "bold"))
 }
 
-# ---- Build all 9 combinations ----
+#Build all 12 combinations
 x_vars <- c("depth", "velocity", "shear")
 y_vars <- c("k_prime", "f_k", "Q50_time_min_mean", "max_frac")
 
@@ -372,11 +373,40 @@ cor.test(flux_by_cond$shear, flux_by_cond$max_frac, method = "spearman") #rho = 
 
 #Name plots + save significant ones
 names(plots_12) <- sapply(plots_12, function(p) attr(p, "plot_name"))
-ggsave("figures/f_k_vs_depth.png", plots_12$p_f_k_vs_depth, width = 7, height = 5, dpi = 600, bg = "white")
+ggsave("figures/f_k_vs_depth.png", plots_12$p_f_k_vs_depth, width = 5, height = 4, dpi = 600, bg = "white")
 ggsave("figures/Q50_vs_depth.png", plots_12$p_Q50_time_min_mean_vs_depth, width = 7, height = 5, dpi = 600, bg = "white")
 ggsave("figures/Fw_vs_depth.png", plots_12$p_max_frac_vs_depth, width = 7, height = 5, dpi = 600, bg = "white")
 ggsave("figures/Q50_vs_velocity.png", plots_12$p_Q50_time_min_mean_vs_velocity, width = 7, height = 5, dpi = 600, bg = "white")
 
+
+#Extract a single legend to place as a right column
+legend_g <- cowplot::get_legend(
+  plots_12$p_f_k_vs_depth +
+    theme(
+      legend.position = "right",
+      legend.title = element_text(size = 14),
+      legend.text  = element_text(size = 12),
+      legend.key.size = unit(1, "lines"),
+      legend.spacing.y = unit(0.7, "lines")
+    )
+)
+legend_gg <- cowplot::ggdraw(legend_g)
+
+#Remove individual legends and y-axis title
+strip_y <- theme(axis.title.y = element_blank(),
+                 axis.title.y.right = element_blank())
+
+plots_12$p_f_k_vs_depth_n <- plots_12$p_f_k_vs_depth + strip_y + theme(legend.position = "none")
+plots_12$p_Q50_time_min_mean_vs_depth_n <- plots_12$p_Q50_time_min_mean_vs_depth + strip_y + theme(legend.position = "none")
+plots_12$p_max_frac_vs_depth_n <- plots_12$p_max_frac_vs_depth + strip_y + theme(legend.position = "none")
+plots_12$p_Q50_time_min_mean_vs_velocity_n <- plots_12$p_Q50_time_min_mean_vs_velocity + strip_y + theme(legend.position = "none")
+
+#Stitch plots
+panel_grid <- (plots_12$p_f_k_vs_depth_n | plots_12$p_max_frac_vs_depth_n) / (plots_12$p_Q50_time_min_mean_vs_depth_n | plots_12$p_Q50_time_min_mean_vs_velocity_n)
+
+final <- (panel_grid | legend_gg) + patchwork::plot_layout(widths = c(1, 0.2))
+
+ggsave("figures/correlation_grid.png", final, width = 9, height = 7, dpi = 600, bg = "white")
 
 
 #PSA Velocity Quartiles----
