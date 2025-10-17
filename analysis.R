@@ -840,8 +840,7 @@ group_vars <- c("surface","rainfall","slope")
 # metrics for which you want min/max groups called out
 minmax_targets <- c("k_prime","f_k","max_frac","Q50_time_min_mean")
 
-# ---- 1) Averages by each single factor (not all at once) -----------------
-# returns a named list of tibbles: $surface, $rainfall, $slope
+#Averages by each individual factor
 averages_by_factor <- map(group_vars, function(gv) {
   df %>%
     group_by(.data[[gv]]) %>%
