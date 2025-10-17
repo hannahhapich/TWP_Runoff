@@ -327,6 +327,7 @@ wash_off_avg <- wash_off_mass %>%
   group_by(condition, surface, t) %>%
   summarize(
     frac_mean = mean(frac),
+    sd_frac = sd(frac),
     i_mean = mean(i),
     .groups = "drop"
   )
@@ -470,20 +471,6 @@ fit_for_c_one_surface <- function(df_surface, cval) {
                  n_cond = nrow(fits))
 }
 
-#Sweep c for each surface and pick the minimizing c* for that surface
-# c_star_by_surface <- wash_off_avg %>%
-#   dplyr::group_by(surface) %>%
-#   dplyr::group_map(~{
-#     df_surf <- .x
-#     c_sweep_surf <- purrr::map_dfr(
-#       c_grid,
-#       ~fit_for_c_one_surface(df_surf, .x) 
-#     )
-#     c_star <- c_sweep_surf$c[which.min(c_sweep_surf$total_rss)]
-#     tibble::tibble(surface = .y$surface[[1]], c_star = c_star)
-#   }) %>%
-#   dplyr::bind_rows()
-
 #Sweep c for each surface and pick the minimizing c* for that surface, save all data
 rss_sweeps_by_surface <- wash_off_avg %>%
   dplyr::group_by(surface) %>%
@@ -559,7 +546,7 @@ param_table_coupled <- wash_off_avg %>%
 #Add rain intensity per condition
 param_table_coupled <- param_table_coupled %>%
   dplyr::left_join(
-    wash_off_avg %>% dplyr::select(condition, i_mean) %>% dplyr::distinct(),
+    wash_off_avg %>% filter(t == 30) %>% dplyr::select(condition, i_mean, sd_frac) %>% dplyr::distinct(),
     by = "condition"
   )
 
@@ -838,6 +825,68 @@ lm(velocity_norm ~ elongation + flatness + Sphericity + Convexity, data = conc_s
 
 #Join shape data
 shape_data <- rbind(sand_shape, conc_shape)
+
+#Summary stats ----
+df <- param_table_coupled %>% 
+  left_join(mass_qtile_summary %>% select(condition, Q50_time_min_mean, Q50_time_min_sd), by = "condition") %>%
+  left_join(metadata %>% select(condition, slope, rainfall) %>% distinct(), by = "condition") %>%
+  select(-c(c_mm, n_points, i_mean))
+
+vars  <- c("k_prime","f_k","max_frac","Q50_time_min_mean","rse","sd_frac","Q50_time_min_sd")
+
+# single-factor groupings you want summarized separately
+group_vars <- c("surface","rainfall","slope")
+
+# metrics for which you want min/max groups called out
+minmax_targets <- c("k_prime","f_k","max_frac","Q50_time_min_mean")
+
+# ---- 1) Averages by each single factor (not all at once) -----------------
+# returns a named list of tibbles: $surface, $rainfall, $slope
+averages_by_factor <- map(group_vars, function(gv) {
+  df %>%
+    group_by(.data[[gv]]) %>%
+    summarise(
+      across(all_of(vars), ~ mean(.x, na.rm = TRUE), .names = "avg_{.col}"),
+      n = dplyr::n(),
+      .groups = "drop"
+    ) %>%
+    arrange(.data[[gv]])
+}) %>% set_names(group_vars)
+
+# Example: view each table
+averages_by_factor$surface
+averages_by_factor$rainfall
+averages_by_factor$slope
+
+#Min/max for each variable
+pull_level_chr <- function(df, col) {
+  as.character(df %>% dplyr::pull(dplyr::all_of(col)))
+}
+
+minmax_by_factor <- purrr::map_dfr(group_vars, function(gv) {
+  avg_tbl <- averages_by_factor[[gv]]
+  val_for <- function(metric) paste0("avg_", metric)
+  
+  purrr::map_dfr(minmax_targets, function(metric) {
+    valcol <- val_for(metric)
+    
+    min_row <- avg_tbl %>% dplyr::slice_min(.data[[valcol]], n = 1, with_ties = FALSE)
+    max_row <- avg_tbl %>% dplyr::slice_max(.data[[valcol]], n = 1, with_ties = FALSE)
+    
+    tibble::tibble(
+      group     = gv,
+      metric    = metric,
+      min_level = pull_level_chr(min_row, gv),
+      min_value = min_row %>% dplyr::pull(dplyr::all_of(valcol)),
+      max_level = pull_level_chr(max_row, gv),
+      max_value = max_row %>% dplyr::pull(dplyr::all_of(valcol))
+    )
+  })
+})
+
+#View
+minmax_by_factor
+
 
 
 #Significance testing ----
