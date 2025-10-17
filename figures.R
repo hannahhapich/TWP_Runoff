@@ -421,18 +421,26 @@ PSA_clean <- PSA_velocity %>%
                         labels = c("Low","Medium","High")),
     slope_f    = factor(slope, levels = c(5,10,15)),
     surface_f  = factor(surface, levels = c("sand","concrete"),
-                        labels = c("Sand","Concrete"))
+                        labels = c("High Roughness","Low Roughness"))
+  ) %>%
+  mutate( #Convert from m/s to cm/s
+    Q25_count_v = Q25_count_v * 100,
+    Q50_count_v = Q50_count_v * 100,
+    Q75_count_v = Q75_count_v * 100,
+    Q25_vol_v = Q25_vol_v * 100,
+    Q50_vol_v = Q50_vol_v * 100,
+    Q75_vol_v = Q75_vol_v * 100
   )
 
 plot_psa <- function(df, kind = c("count","volume")) {
   kind <- match.arg(kind)
   
   if (kind == "count") {
-    q25 <- rlang::sym("Q25_count_time"); q50 <- rlang::sym("Q50_count_time"); q75 <- rlang::sym("Q75_count_time")
-    title_lab <- expression("Particle half load by size ("*Q[25]*", "*Q[50]*", and "*Q[75]*", by count)")
+    q25 <- rlang::sym("Q25_count_v"); q50 <- rlang::sym("Q50_count_v"); q75 <- rlang::sym("Q75_count_v")
+    title_lab <- expression("Quartile velocities by size")
   } else {
-    q25 <- rlang::sym("Q25_vol_time");   q50 <- rlang::sym("Q50_vol_time");   q75 <- rlang::sym("Q75_vol_time")
-    title_lab <- expression("Particle half load by size ("*Q[25]*", "*Q[50]*", and "*Q[75]*", by volume)")
+    q25 <- rlang::sym("Q25_vol_v");   q50 <- rlang::sym("Q50_vol_v");   q75 <- rlang::sym("Q75_vol_v")
+    title_lab <- expression("Quartile velocities by size, calculated by particle volume")
   }
   
   # 5 size classes per slope bin → dodge by size (order from size_labels)
@@ -454,7 +462,7 @@ plot_psa <- function(df, kind = c("count","volume")) {
     geom_point(position = pos, size = 2.5) +
     facet_grid(rows = vars(surface_f), cols = vars(rainfall_f)) +
     scale_color_manual(values = size_cols, name = "Size") +
-    labs(x = "Slope (°)", y = "Time (min)", title = title_lab, subtitle = "Rainfall Intensity") +
+    labs(x = "Slope (°)", y = "Velocity (cm/s)", title = title_lab, subtitle = "Rainfall Intensity") +
     coord_cartesian(ylim = c(0, NA)) +
     theme_minimal(base_size = 12) +
     theme(
@@ -494,7 +502,7 @@ PSA_perc_clean <- PSA_perc_mobil %>%
     size_f     = factor(size_class, levels = size_labels),
     slope_f    = factor(slope,    levels = c(5, 10, 15)),
     surface_f  = factor(surface, levels = c("sand","concrete"),
-                        labels = c("Sand","Concrete")),
+                        labels = c("High Roughness","Low Roughness")),
     rainfall_f = factor(rainfall,
                         levels = c("low","med","high"),
                         labels = c("Low","Medium","High"))
@@ -504,7 +512,7 @@ PSA_perc_clean <- PSA_perc_mobil %>%
 plot_perc_mobil_grouped <- function(df, kind = c("count","volume"), diamond_gap = 1) {
   kind <- match.arg(kind)
   value_sym <- if (kind == "count") rlang::sym("perc_count_mobilized") else rlang::sym("perc_volume_mobilized")
-  title_lab <- if (kind == "count") "Percent mobilized (by count)" else "Percent mobilized (by volume)"
+  title_lab <- if (kind == "count") "Percent mobilized by size" else "Percent mobilized by size, calculated by particle volume"
   
   # 5 size classes per slope bin → dodge by size
   bar_width <- 0.75
@@ -729,7 +737,7 @@ ggsave("figures/psd_all_volume.png", p_psd_volume, width = 8, height = 5, dpi = 
 
 
 
-#Shape data linear regressions ----
+#Shape data correlations ----
 #Read in data (warning, takes a couple minutes)
 shape_data <- read.csv("data/output_data/shape_data.csv")
 
@@ -746,6 +754,9 @@ if (length(surf_lvls) == 2) {
 
 #pal_full  <- viridisLite::magma(11)
 #surf_cols <- c(concrete = pal_full[7], sand = pal_full[9])
+#Reorder so sand comes first
+order_levels <- c("sand","concrete")
+shape_data$surface <- factor(shape_data$surface, levels = order_levels)
 
 plot_shape_overlay <- function(df, x,
                                x_lab   = deparse(substitute(x)),
@@ -765,9 +776,16 @@ plot_shape_overlay <- function(df, x,
   rho_method <- match.arg(rho_method)
   beta_mode  <- match.arg(beta_mode)
   
-  lvls <- levels(factor(df$surface))
+  legend_order <- c("sand","concrete")
+  
+  # levels used everywhere
+  lvls <- intersect(legend_order, levels(factor(df$surface)))
   cols <- surf_cols[lvls]; names(cols) <- lvls
-  lbls <- c(concrete="Concrete", sand="Sand")[lvls]
+  lbls <- c(sand = "High Roughness", concrete = "Low Roughness")[lvls]
+  
+  # compute stacking index so FIRST legend item goes on TOP
+  rank_idx  <- match(lvls, legend_order)         # 1 for "sand", 2 for "concrete"
+  stack_idx <- length(lvls) - rank_idx
   
   y_rng <- if (is.null(y_range)) range(df$velocity_norm, na.rm = TRUE) else y_range
   x_sym <- ensym(x)
@@ -800,6 +818,9 @@ plot_shape_overlay <- function(df, x,
     betas <- beta_vals[lvls]
   }
   
+  xr <- range(dplyr::pull(df, !!x_sym), na.rm = TRUE)
+  yr <- y_rng
+  
   #Annotation (bottom-right, stacked)
   ann_df <- NULL
   if (!is.null(rhos) || !is.null(betas)) {
@@ -814,7 +835,7 @@ plot_shape_overlay <- function(df, x,
                      ifelse(is.null(rhos)  | is.na(rhos),  "NA",
                             sprintf(paste0("%.", rho_digits,  "f"), rhos))),
       x = xr[2] - 0.02 * diff(xr),
-      y = yr[1] + (seq_along(lvls) - 1L) * rho_gap * diff(yr) + 0.02 * diff(yr)
+      y = yr[1] + (stack_idx) * rho_gap * diff(yr) + 0.02 * diff(yr)
     )
   }
   
@@ -841,6 +862,7 @@ plot_shape_overlay <- function(df, x,
   
   p
 }
+
 
 #Legend extraction and shared-axis label trick
 
@@ -883,15 +905,13 @@ y_title <- ggplot() +
 panel_grid <- (pA_n | pB_n) / (pC_n | pD_n)
 
 final <- (y_title | panel_grid | legend_g) +
-  patchwork::plot_layout(widths = c(0.08, 1, 0.20))  #Adjust to add/remove gap
+  patchwork::plot_layout(widths = c(0.08, 1, 0.30))  #Adjust to add/remove gap
 
 #View
 final
 
 #Save
 ggsave("figures/shape_factors.png", final, width = 7, height = 5, dpi = 600, bg = "white")
-
-
 
 
 

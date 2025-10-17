@@ -905,8 +905,12 @@ param_table_coupled <- param_table_coupled %>%
   )
 
 #ANOVA tests
-anova_kprime <- aov(k_prime ~ slope * rainfall * surface, data = param_table_coupled)
-anova_fk     <- aov(f_k     ~ slope * rainfall * surface, data = param_table_coupled)
+anova_kprime <- aov(k_prime ~ surface + rainfall + slope +
+                          surface:rainfall + surface:slope + rainfall:slope,
+                        data = param_table_coupled)
+anova_fk <- aov(f_k ~ surface + rainfall + slope +
+                      surface:rainfall + surface:slope + rainfall:slope,
+                    data = param_table_coupled)
 
 summary(anova_kprime)
 summary(anova_fk)
@@ -921,8 +925,12 @@ mass_qtile_summary <- mass_qtile_summary %>%
   )
 
 #ANOVA tests
-anova_Q50 <- aov(Q50_time_min_mean ~ slope * rainfall * surface, data = mass_qtile_summary)
-anova_Fw     <- aov(max_frac     ~ slope * rainfall * surface, data = mass_qtile_summary)
+anova_Q50 <- aov(Q50_time_min_mean ~ surface + rainfall + slope +
+                      surface:rainfall + surface:slope + rainfall:slope,
+                    data = mass_qtile_summary)
+anova_Fw <- aov(max_frac ~ surface + rainfall + slope +
+                  surface:rainfall + surface:slope + rainfall:slope,
+                data = mass_qtile_summary)
 
 summary(anova_Q50)
 summary(anova_Fw)
