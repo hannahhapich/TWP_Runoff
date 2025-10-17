@@ -27,9 +27,9 @@ params_surface <- model_params %>%
   )
 
 facet_labels <- list(
-  slope_f    = c(`5`="Slope : 5º (9%)", `10`="Slope : 10º (18%)", `15`="Slope : 15º (27%)"),
-  rainfall_f = c(high="Rainfall: 89 mm/hr", med="Rainfall: 63 mm/hr", low="Rainfall: 36 mm/hr"),
-  surface_f = c("Sand","Concrete")
+  slope_f    = c(`5`="5º (9%)", `10`="10º (18%)", `15`="15º (27%)"),
+  rainfall_f = c(high="89 mm/hr", med="63 mm/hr", low="36 mm/hr"),
+  surface_f = c("High Roughness","Low Roughness")
 )
 
 #Make curves from model parameters
@@ -97,9 +97,9 @@ plot_surface <- function(surface_type = "sand") {
            x_anno = if_else(condition == 16 | condition == 17 | condition == 18, x_anno - 10, x_anno))
   
   if (surface_type == "sand") {
-    title = "Sand Surface Wash-off Model"
+    title = "High Roughness Wash-off Models"
   } else {
-    title = "Concrete Surface Wash-off Model" } 
+    title = "Low Roughness Wash-off Models" } 
   
   ggplot() +
     
