@@ -183,7 +183,7 @@ make_heatmap <- function(df, value_col, title, limits, palette = "inferno", dire
     geom_tile(color = "white", linewidth = 0.7) +
     facet_grid(
       rows = vars(surface_f),
-      labeller = labeller(surface_f = c(sand = "Sand", concrete = "Concrete"))  # ✅ Capitalized labels
+      labeller = labeller(surface_f = c(sand = "High", concrete = "Low"))
     ) +
     scale_x_discrete(name = "Slope", labels = slope_tick_labels) +
     scale_y_discrete(name = "Rainfall", labels = rain_tick_labels) +
@@ -306,7 +306,8 @@ flux_by_cond <- flux_data %>%
             velocity = mean(V) * 100,
             shear = mean(tau)) %>%
   left_join(params %>% select(f_k, k_prime, condition, max_frac), by = "condition") %>%
-  left_join(q50_mass_flux %>% select(Q50_time_min_mean, condition), by = "condition")
+  left_join(q50_mass_flux %>% select(Q50_time_min_mean, condition), by = "condition") %>%
+  mutate(surface = factor(surface, levels = c("sand","concrete")))
 
 #Set colors + shapes
 mcols <- viridisLite::magma(100)
@@ -324,17 +325,30 @@ label_map <- c(
   shear = "Shear stress (Pa)"
 )
 
+surface_labels <- c(
+  sand = "High",
+  concrete = "Low"
+)
+
 #Plot function
 make_xy_plot <- function(df, xvar, yvar) {
   ggplot(df, aes_string(x = xvar, y = yvar, color = "surface", shape = "surface")) +
     geom_point(size = 3) +
-    scale_color_manual(values = surf_cols) +
-    scale_shape_manual(values = surf_shapes) +
+    scale_color_manual(
+      values = surf_cols,                      # names: sand/concrete
+      breaks = c("sand","concrete"),           # order in legend (High first)
+      labels = c(sand = "High", concrete = "Low"),
+      name   = "Surface\nRoughness"
+    ) +
+    scale_shape_manual(
+      values = surf_shapes,                    # names: sand/concrete
+      breaks = c("sand","concrete"),
+      labels = c(sand = "High", concrete = "Low"),
+      name   = "Surface\nRoughness"
+    ) +
     labs(
       x = label_map[[xvar]],
       y = label_map[[yvar]],
-      color = "Surface",
-      shape = "Surface",
       title = paste0(label_map[[yvar]], " vs ", label_map[[xvar]])
     ) +
     theme_minimal(base_size = 12) +
@@ -371,6 +385,36 @@ cor.test(flux_by_cond$depth, flux_by_cond$max_frac, method = "spearman") #rho = 
 cor.test(flux_by_cond$velocity, flux_by_cond$max_frac, method = "spearman") #rho = 0.4365325
 cor.test(flux_by_cond$shear, flux_by_cond$max_frac, method = "spearman") #rho = 0.07327141
 
+#Function to add Spearman rho and p to plots (corner = "br" or "tr")
+corr_annot <- function(df, xvar, yvar, corner = c("br","tr"),
+                       digits_rho = 2, digits_p = 2, size = 4.5) {
+  corner <- match.arg(corner)
+  d <- df[, c(xvar, yvar)]
+  d <- d[stats::complete.cases(d), , drop = FALSE]
+  
+  ct   <- suppressWarnings(stats::cor.test(d[[xvar]], d[[yvar]],
+                                           method = "spearman", exact = FALSE))
+  rho  <- unname(ct$estimate)
+  pval <- ct$p.value
+  plab <- if (pval < 1e-3) {
+    formatC(pval, format = "e", digits = 1)    # scientific for very small
+  } else {
+    formatC(pval, format = "f", digits = 3)    # 3 decimal places otherwise
+  }
+  
+  xr <- range(d[[xvar]], na.rm = TRUE);    yr <- range(d[[yvar]], na.rm = TRUE)
+  x  <- xr[2] - 0.02 * diff(xr)            # right
+  y  <- if (corner == "br") yr[1] + 0.02 * diff(yr) else yr[2] - 0.02 * diff(yr)
+  
+  ggplot2::geom_text(
+    data = data.frame(x = x, y = y,
+                      lab = sprintf("\u03c1 = %.*f\n p = %s", digits_rho, rho, plab)),
+    ggplot2::aes(x = x, y = y, label = lab),
+    inherit.aes = FALSE, hjust = 1, vjust = if (corner == "br") 0 else 1,
+    fontface = "bold", size = size
+  )
+}
+
 #Name plots
 names(plots_12) <- sapply(plots_12, function(p) attr(p, "plot_name"))
 
@@ -388,14 +432,10 @@ legend_g <- cowplot::get_legend(
 )
 legend_gg <- cowplot::ggdraw(legend_g)
 
-#Remove individual legends and y-axis title
-strip_y <- theme(axis.title.y = element_blank(),
-                 axis.title.y.right = element_blank())
-
-plots_12$p_f_k_vs_depth_n <- plots_12$p_f_k_vs_depth + strip_y + theme(legend.position = "none")
-plots_12$p_Q50_time_min_mean_vs_depth_n <- plots_12$p_Q50_time_min_mean_vs_depth + strip_y + theme(legend.position = "none")
-plots_12$p_max_frac_vs_depth_n <- plots_12$p_max_frac_vs_depth + strip_y + theme(legend.position = "none")
-plots_12$p_Q50_time_min_mean_vs_velocity_n <- plots_12$p_Q50_time_min_mean_vs_velocity + strip_y + theme(legend.position = "none")
+plots_12$p_f_k_vs_depth_n <- plots_12$p_f_k_vs_depth + theme(legend.position = "none") + corr_annot(flux_by_cond, "depth", "f_k", "br")
+plots_12$p_Q50_time_min_mean_vs_depth_n <- plots_12$p_Q50_time_min_mean_vs_depth + theme(legend.position = "none") + corr_annot(flux_by_cond, "depth", "Q50_time_min_mean", "tr")
+plots_12$p_max_frac_vs_depth_n <- plots_12$p_max_frac_vs_depth + theme(legend.position = "none") + corr_annot(flux_by_cond, "depth", "max_frac", "br")
+plots_12$p_Q50_time_min_mean_vs_velocity_n <- plots_12$p_Q50_time_min_mean_vs_velocity + theme(legend.position = "none") + corr_annot(flux_by_cond, "velocity", "Q50_time_min_mean", "tr")
 
 #Stitch plots
 panel_grid <- (plots_12$p_f_k_vs_depth_n | plots_12$p_max_frac_vs_depth_n) / (plots_12$p_Q50_time_min_mean_vs_depth_n | plots_12$p_Q50_time_min_mean_vs_velocity_n)
