@@ -826,7 +826,10 @@ lm(velocity_norm ~ elongation + flatness + Sphericity + Convexity, data = conc_s
 #Join shape data
 shape_data <- rbind(sand_shape, conc_shape)
 
+
+
 #Summary stats ----
+##Wash-off factors vs experimental conditions ----
 df <- param_table_coupled %>% 
   left_join(mass_qtile_summary %>% select(condition, Q50_time_min_mean, Q50_time_min_sd), by = "condition") %>%
   left_join(metadata %>% select(condition, slope, rainfall) %>% distinct(), by = "condition") %>%
@@ -887,6 +890,70 @@ minmax_by_factor <- purrr::map_dfr(group_vars, function(gv) {
 minmax_by_factor
 
 
+##V50 and mobilizable amount vs experimental conditions + particle size ----
+#Data prep
+df <- percent_mobilized %>%
+  select(condition, size_class, perc_count_mobilized, perc_volume_mobilized) %>%
+  left_join(PSA_qtile_speeds %>% select(condition, size_class, Q50_count_v, Q50_vol_v), by = c("condition", "size_class")) %>%
+  left_join(metadata %>% select(-c(run, replicate)) %>% distinct(), by = "condition") %>%
+  mutate(Q50_count_v = Q50_count_v * 100, #Convert m/s to cm/s
+         Q50_vol_v = Q50_vol_v * 100)
+
+vars  <- c("Q50_count_v", "Q50_vol_v", "perc_count_mobilized","perc_volume_mobilized")
+
+# single-factor groupings you want summarized separately
+group_vars <- c("surface","rainfall","slope", "size_class")
+
+# metrics for which you want min/max groups called out
+minmax_targets <- c("Q50_count_v", "Q50_vol_v", "perc_count_mobilized","perc_volume_mobilized")
+
+#Averages by each individual factor
+averages_by_factor <- map(group_vars, function(gv) {
+  df %>%
+    group_by(.data[[gv]]) %>%
+    summarise(
+      across(all_of(vars), ~ mean(.x, na.rm = TRUE), .names = "avg_{.col}"),
+      n = dplyr::n(),
+      .groups = "drop"
+    ) %>%
+    arrange(.data[[gv]])
+}) %>% set_names(group_vars)
+
+# Example: view each table
+averages_by_factor$surface
+averages_by_factor$rainfall
+averages_by_factor$slope
+averages_by_factor$size_class
+
+#Min/max for each variable
+pull_level_chr <- function(df, col) {
+  as.character(df %>% dplyr::pull(dplyr::all_of(col)))
+}
+
+minmax_by_factor <- purrr::map_dfr(group_vars, function(gv) {
+  avg_tbl <- averages_by_factor[[gv]]
+  val_for <- function(metric) paste0("avg_", metric)
+  
+  purrr::map_dfr(minmax_targets, function(metric) {
+    valcol <- val_for(metric)
+    
+    min_row <- avg_tbl %>% dplyr::slice_min(.data[[valcol]], n = 1, with_ties = FALSE)
+    max_row <- avg_tbl %>% dplyr::slice_max(.data[[valcol]], n = 1, with_ties = FALSE)
+    
+    tibble::tibble(
+      group     = gv,
+      metric    = metric,
+      min_level = pull_level_chr(min_row, gv),
+      min_value = min_row %>% dplyr::pull(dplyr::all_of(valcol)),
+      max_level = pull_level_chr(max_row, gv),
+      max_value = max_row %>% dplyr::pull(dplyr::all_of(valcol))
+    )
+  })
+})
+
+#View
+minmax_by_factor
+
 
 #Significance testing ----
 ##Mass-based significance testing ----
@@ -940,7 +1007,7 @@ summary(anova_Fw)
 #Data prep
 PSA_summary_data <- percent_mobilized %>%
   select(condition, size_class, perc_count_mobilized, perc_volume_mobilized) %>%
-  left_join(PSA_qtile_speeds %>% select(condition, size_class, Q50_count_time, Q50_vol_time), by = c("condition", "size_class")) %>%
+  left_join(PSA_qtile_speeds %>% select(condition, size_class, Q50_count_v, Q50_vol_v), by = c("condition", "size_class")) %>%
   left_join(metadata %>% select(-c(run, replicate)) %>% distinct(), by = "condition")
 
 # Encode factors
@@ -953,19 +1020,35 @@ PSA_summary_data <- PSA_summary_data %>%
   )
 
 #ANOVA tests
-aov_q50_count <- aov(Q50_count_time ~ slope * rainfall * surface * size_class,
+aov_q50_v_count <- aov(Q50_count_v ~ surface + rainfall + slope + size_class +
+                  surface:rainfall + surface:slope + rainfall:slope +
+                    surface:size_class + rainfall:size_class + slope:size_class +
+                    surface:rainfall:slope + surface:rainfall:size_class +
+                    surface:slope:size_class + rainfall:slope:size_class,
+                data = PSA_summary_data)
+aov_q50_v_vol <- aov(Q50_vol_v ~ surface + rainfall + slope + size_class +
+                       surface:rainfall + surface:slope + rainfall:slope +
+                       surface:size_class + rainfall:size_class + slope:size_class +
+                       surface:rainfall:slope + surface:rainfall:size_class +
+                       surface:slope:size_class + rainfall:slope:size_class,
                      data = PSA_summary_data)
-aov_q50_vol <- aov(Q50_vol_time ~ slope * rainfall * surface * size_class,
+aov_mobilized_count <- aov(perc_count_mobilized ~ surface + rainfall + slope + size_class +
+                       surface:rainfall + surface:slope + rainfall:slope +
+                       surface:size_class + rainfall:size_class + slope:size_class +
+                       surface:rainfall:slope + surface:rainfall:size_class +
+                       surface:slope:size_class + rainfall:slope:size_class,
                      data = PSA_summary_data)
-aov_mobilized_count <- aov(perc_count_mobilized ~ slope * rainfall * surface * size_class,
+aov_mobilized_vol <- aov(perc_volume_mobilized ~ surface + rainfall + slope + size_class +
+                       surface:rainfall + surface:slope + rainfall:slope +
+                       surface:size_class + rainfall:size_class + slope:size_class +
+                       surface:rainfall:slope + surface:rainfall:size_class +
+                       surface:slope:size_class + rainfall:slope:size_class,
                      data = PSA_summary_data)
-aov_mobilized_vol <- aov(perc_volume_mobilized ~ slope * rainfall * surface * size_class,
-                     data = PSA_summary_data)
-summary(aov_q50_count)
-summary(aov_q50_vol)
+
+summary(aov_q50_v_count)
+summary(aov_q50_v_vol)
 summary(aov_mobilized_count)
 summary(aov_mobilized_vol)
-
 
 
 #Data export ----
