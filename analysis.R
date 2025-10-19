@@ -835,6 +835,13 @@ df <- param_table_coupled %>%
   left_join(metadata %>% select(condition, slope, rainfall) %>% distinct(), by = "condition") %>%
   select(-c(c_mm, n_points, i_mean))
 
+#Compare high rain intensity Fw per surface for discussion section
+df %>% select(max_frac, sd_frac, rainfall, surface) %>%
+  filter(rainfall == "high") %>%
+  group_by(surface) %>%
+  summarize(avg_max_frac = mean(max_frac),
+            avg_sd_frac = mean(sd_frac))
+
 vars  <- c("k_prime","f_k","max_frac","Q50_time_min_mean","rse","sd_frac","Q50_time_min_sd")
 
 # single-factor groupings you want summarized separately
