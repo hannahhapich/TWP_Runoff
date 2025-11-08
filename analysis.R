@@ -181,20 +181,6 @@ average_water_flux <- water_flux %>%
 
 print(average_water_flux) #Average rain data from water flux
 
-#Recurrence Interval Calculations ----
-#From NOAA 14-point Precipitation Frequency Estimates @ Wardlow Bridge, LA River Sampling Site
-#30-minute depth
-average_water_flux <- average_water_flux %>%
-  mutate(thirty_min_inch = mean_mm_min * 30 * (1/25.4))
-
-#Interpolate from NOAA table
-#Low = 0.708 inch
-recurrence_int_low <- 5 + (10-5)*((0.708 - 0.615)/(0.742 - 0.615)) #8.661417 year return period
-#Medium = 1.23 inch
-recurrence_int_med <- 100 + (200-100)*((1.23 - 1.2)/(1.35 - 1.2)) #120 year return period
-#High = 1.74 inch, 1000 year = 1.73 inches
-
-
 
 #Estimating flow depth ----
 #Calculate Re to determine laminar vs turbulent flow
@@ -840,7 +826,8 @@ qtime <- function(dat, weight_col = c("count","volume"), p = 0.5) {
 size_breaks <- c(-Inf, 125, 250, 500, 1000, Inf)
 size_labels <- c("<125 µm", "125–250 µm", "250–500 µm", "500–1000 µm", ">1000 µm")
 
-PSA_qtile_times <- mobilized_PSA %>%
+#Calculate V50 based off of pooled particle data across all runs (per condition)
+pooled_qtiles <- mobilized_PSA %>%
   mutate(size_class = cut(FLength, breaks = size_breaks, labels = size_labels, right = TRUE)) %>%
   filter(!is.na(size_class)) %>%
   group_by(condition, size_class, end_time_min) %>%
@@ -866,6 +853,51 @@ PSA_qtile_times <- mobilized_PSA %>%
   ) %>%
   arrange(condition, factor(size_class, levels = size_labels))
 
+#Calculate per-run to obtain SD
+run_qtiles <- mobilized_PSA %>%
+  mutate(size_class = cut(FLength, breaks = size_breaks, labels = size_labels, right = TRUE)) %>%
+  filter(!is.na(size_class)) %>%
+  group_by(condition, run, size_class, end_time_min) %>%
+  summarise(
+    count  = n(),
+    volume = sum(Volume, na.rm = TRUE),
+    .groups = "drop_last"      #Leaves condition, run, size_class
+  ) %>%
+  arrange(condition, run, size_class, end_time_min) %>%
+  group_by(condition, run, size_class) %>%
+  mutate(start_time_min = dplyr::lag(end_time_min, default = 0)) %>%
+  summarise(  #Per-run qtimes
+    Q25_count_time = qtime(cur_data_all(), "count",  0.25),
+    Q50_count_time = qtime(cur_data_all(), "count",  0.50),
+    Q75_count_time = qtime(cur_data_all(), "count",  0.75),
+    Q25_vol_time   = qtime(cur_data_all(), "volume", 0.25),
+    Q50_vol_time   = qtime(cur_data_all(), "volume", 0.50),
+    Q75_vol_time   = qtime(cur_data_all(), "volume", 0.75),
+    .groups = "drop"
+  )
+
+run_qtile_summary <- run_qtiles %>%
+  group_by(condition, size_class) %>%
+  summarise(
+    n_runs = dplyr::n(),
+    across(
+      starts_with("Q"),
+      list(mean = ~ mean(.x, na.rm = TRUE),
+           sd   = ~ sd(.x,   na.rm = TRUE)),
+      .names = "{.col}_{.fn}"
+    ),
+    .groups = "drop"
+  ) %>% select(condition, size_class,
+               Q25_count_time_sd, Q50_count_time_sd, Q75_count_time_sd,
+               Q25_vol_time_sd, Q50_vol_time_sd, Q75_vol_time_sd)
+
+#Join pooled V50 calculations with SD
+PSA_qtile_times <- pooled_qtiles %>%
+  left_join(run_qtile_summary, by = c("condition", "size_class"))
+
+#Avoid divide by zero
+safe_cv <- function(sd, mean) ifelse(is.finite(sd) & is.finite(mean) & mean > 0, sd/mean, NA_real_)
+
 ###Calculate quantile effective velocity ----
 PSA_qtile_speeds <- PSA_qtile_times %>% 
   #Calculate quantile speeds (m/s)
@@ -875,7 +907,24 @@ PSA_qtile_speeds <- PSA_qtile_times %>%
          Q25_vol_v   = 1.1/(Q25_vol_time*60),
          Q50_vol_v   = 1.1/(Q50_vol_time*60),
          Q75_vol_v   = 1.1/(Q75_vol_time*60)) %>%
+  #Calculate ratio of mean to SD for quantile times and apply to quantile velocities 
+  #(solution to scaling issue where small sd values grow exponentially when multiplying the same as mean)
+  mutate(cv_Q25_count_time = safe_cv(Q25_count_time_sd, Q25_count_time),
+         cv_Q50_count_time = safe_cv(Q50_count_time_sd, Q50_count_time),
+         cv_Q75_count_time = safe_cv(Q75_count_time_sd, Q75_count_time),
+         cv_Q25_vol_time   = safe_cv(Q25_vol_time_sd,   Q25_vol_time),
+         cv_Q50_vol_time   = safe_cv(Q50_vol_time_sd,   Q50_vol_time),
+         cv_Q75_vol_time   = safe_cv(Q75_vol_time_sd,   Q75_vol_time),
+         
+         Q25_count_v_sd = cv_Q25_count_time * Q25_count_v,
+         Q50_count_v_sd = cv_Q50_count_time * Q50_count_v,
+         Q75_count_v_sd = cv_Q75_count_time * Q75_count_v,
+         Q25_vol_v_sd   = cv_Q25_vol_time   * Q25_vol_v,
+         Q50_vol_v_sd   = cv_Q50_vol_time   * Q50_vol_v,
+         Q75_vol_v_sd   = cv_Q75_vol_time   * Q75_vol_v) %>%
   left_join(metadata %>% select(-c(replicate, run)) %>% distinct(), by = "condition")
+
+
 
 ##Particle transport effectiveness by size ----
 immobile_PSA <- PSA_data %>% filter(interval == 7) %>%
@@ -914,7 +963,7 @@ immob_sum <- immobile_size_class %>%
   )
 
 #Combine & calculate % mobilized
-percent_mobilized <- full_join(mob_sum, immob_sum,
+percent_mobilized_pooled <- full_join(mob_sum, immob_sum,
                                by = c("condition","size_class")) %>%
   mutate(across(everything(), ~replace_na(.x, 0))) %>%
   mutate(
@@ -924,6 +973,50 @@ percent_mobilized <- full_join(mob_sum, immob_sum,
     perc_volume_mobilized = ifelse(total_volume > 0, mobilized_volume / total_volume * 100, NA)
   ) %>%
   arrange(condition, size_class)
+
+
+#Per-run % mobilized (to obtain SD for each condition)
+mob_sum_run <- mobilized_size_class %>%
+  group_by(condition, run, size_class) %>%
+  summarize(
+    mobilized_count  = n(),
+    mobilized_volume = sum(Volume, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+immob_sum_run <- immobile_size_class %>%
+  group_by(condition, run, size_class) %>%
+  summarize(
+    immobile_count  = n(),
+    immobile_volume = sum(Volume, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+#Per-run % mobilized
+percent_mobilized_runs <- full_join(mob_sum_run, immob_sum_run,
+                                    by = c("condition","run","size_class")) %>%
+  mutate(across(everything(), ~ replace_na(.x, 0))) %>%
+  mutate(
+    total_count  = mobilized_count + immobile_count,
+    total_volume = mobilized_volume + immobile_volume,
+    perc_count_mobilized_run  = ifelse(total_count  > 0, mobilized_count  / total_count  * 100, NA_real_),
+    perc_volume_mobilized_run = ifelse(total_volume > 0, mobilized_volume / total_volume * 100, NA_real_)
+  )
+
+#Summarize SD across conditions
+percent_mobilized_runs_summary <- percent_mobilized_runs %>%
+  group_by(condition, size_class) %>%
+  summarize(
+    n_runs = dplyr::n(),
+    perc_count_mobilized_sd  = sd(perc_count_mobilized_run,  na.rm = TRUE),
+    perc_volume_mobilized_sd = sd(perc_volume_mobilized_run, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+#Join
+percent_mobilized <- percent_mobilized_pooled %>%
+  left_join(percent_mobilized_runs_summary,
+            by = c("condition","size_class"))
 
 
 
@@ -986,14 +1079,19 @@ shape_data <- rbind(sand_shape, conc_shape)
 ###V50 and mobilizable amount vs experimental conditions + particle size ----
 #Data prep
 df <- percent_mobilized %>%
-  select(condition, size_class, perc_count_mobilized, perc_volume_mobilized) %>%
-  left_join(PSA_qtile_speeds %>% select(condition, size_class, Q50_count_v, Q50_vol_v), by = c("condition", "size_class")) %>%
+  select(condition, size_class, perc_count_mobilized, perc_count_mobilized_sd, perc_volume_mobilized, perc_volume_mobilized_sd) %>%
+  left_join(PSA_qtile_speeds %>% select(condition, size_class, Q50_count_v, Q50_vol_v, Q50_count_v_sd, Q50_vol_v_sd), by = c("condition", "size_class")) %>%
   left_join(metadata %>% select(-c(run, replicate)) %>% distinct(), by = "condition") %>%
   mutate(Q50_count_v = Q50_count_v * 100, #Convert m/s to cm/s
-         Q50_vol_v = Q50_vol_v * 100)
+         Q50_vol_v = Q50_vol_v * 100,
+         Q50_count_v_sd = Q50_count_v_sd * 100,
+         Q50_vol_v_sd = Q50_vol_v_sd * 100)
 
-vars  <- c("Q50_count_v", "Q50_vol_v", "perc_count_mobilized","perc_volume_mobilized")
+vars  <- c("Q50_count_v", "Q50_vol_v", "Q50_count_v_sd", "Q50_vol_v_sd", 
+           "perc_count_mobilized","perc_volume_mobilized", "perc_count_mobilized_sd", "perc_volume_mobilized_sd")
 
+vars_sd   <- grep("_sd$", vars, value = TRUE)
+vars_mean <- setdiff(vars, vars_sd)
 #Single-factor groupings you want summarized separately
 group_vars <- c("surface","rainfall","slope", "size_class")
 
@@ -1001,23 +1099,21 @@ group_vars <- c("surface","rainfall","slope", "size_class")
 minmax_targets <- c("Q50_count_v", "Q50_vol_v", "perc_count_mobilized","perc_volume_mobilized")
 
 #Averages by each individual factor
-averages_by_factor <- map(group_vars, function(gv) {
+averages_by_factor <- purrr::map(group_vars, function(gv) {
   df %>%
-    group_by(.data[[gv]]) %>%
-    summarise(
-      across(
-        all_of(vars),
-        list(
-          avg = ~ mean(.x, na.rm = TRUE),
-          sd  = ~ sd(.x, na.rm = TRUE)
-        ),
-        .names = "{fn}_{.col}"
+    dplyr::group_by(.data[[gv]]) %>%
+    dplyr::summarise(
+      dplyr::across(
+        dplyr::all_of(vars),
+        ~ mean(.x, na.rm = TRUE),
+        .names = "avg_{.col}"
       ),
       n = dplyr::n(),
       .groups = "drop"
     ) %>%
-    arrange(.data[[gv]])
-}) %>% set_names(group_vars)
+    dplyr::arrange(.data[[gv]])
+}) %>% purrr::set_names(group_vars)
+
 
 #View each table
 averages_by_factor$surface
@@ -1032,21 +1128,26 @@ pull_level_chr <- function(df, col) {
 
 minmax_by_factor <- purrr::map_dfr(group_vars, function(gv) {
   avg_tbl <- averages_by_factor[[gv]]
-  val_for <- function(metric) paste0("avg_", metric)
+  val_for      <- function(metric) paste0("avg_", metric)           # mean column
+  val_for_sd   <- function(metric) paste0("avg_", metric, "_sd")    # paired SD col if it exists
   
   purrr::map_dfr(minmax_targets, function(metric) {
-    valcol <- val_for(metric)
+    valcol   <- val_for(metric)
+    sdcol    <- val_for_sd(metric)
+    has_sd   <- sdcol %in% names(avg_tbl)
     
     min_row <- avg_tbl %>% dplyr::slice_min(.data[[valcol]], n = 1, with_ties = FALSE)
     max_row <- avg_tbl %>% dplyr::slice_max(.data[[valcol]], n = 1, with_ties = FALSE)
     
     tibble::tibble(
-      group     = gv,
-      metric    = metric,
-      min_level = pull_level_chr(min_row, gv),
-      min_value = min_row %>% dplyr::pull(dplyr::all_of(valcol)),
-      max_level = pull_level_chr(max_row, gv),
-      max_value = max_row %>% dplyr::pull(dplyr::all_of(valcol))
+      group       = gv,
+      metric      = metric,
+      min_level   = pull_level_chr(min_row, gv),
+      min_value   = min_row %>% dplyr::pull(dplyr::all_of(valcol)),
+      min_value_sd = if (has_sd) min_row %>% dplyr::pull(dplyr::all_of(sdcol)) else NA_real_,
+      max_level   = pull_level_chr(max_row, gv),
+      max_value   = max_row %>% dplyr::pull(dplyr::all_of(valcol)),
+      max_value_sd = if (has_sd) max_row %>% dplyr::pull(dplyr::all_of(sdcol)) else NA_real_
     )
   })
 })
@@ -1054,7 +1155,7 @@ minmax_by_factor <- purrr::map_dfr(group_vars, function(gv) {
 #View
 minmax_by_factor
 
-#SD Summary Values
+
 
 ##Significance testing ----
 ##Particle size significance testing ----
