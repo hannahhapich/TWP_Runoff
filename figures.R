@@ -936,7 +936,7 @@ pD_n <- pD + strip_y + theme(legend.position = "none")
 #Place new single y-axis title
 y_title <- ggplot() +
   annotate("text", x = 0, y = 0.5,
-           label = "Velocity (variation from mean, by size)",
+           label = expression(V[norm]~" ("~V[particle]~"/"~bar(V)[size~class]~")"),
            angle = 90, vjust = 0.5, fontface = "bold") +
   theme_void() +
   theme(plot.margin = margin(5.5, 5.5, 5.5, 5.5))
