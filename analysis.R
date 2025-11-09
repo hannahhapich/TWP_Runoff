@@ -165,7 +165,7 @@ water_flux <- runoff_data %>%
   left_join(metadata %>% select(run, slope, rainfall), by = "run") %>%
   mutate(mean_mL_min = ifelse(rainfall == "high", mean_mL_min * 2, mean_mL_min)) %>% #Correcting for high rainfall runoff collections being every 0.5 mins
   mutate(slope_rad = slope * (pi / 180)) %>%
-  mutate(projected_area = (7200)*(cos(slope_rad))) %>% #Choi (2016) equation for projected (rain) area, 120 x 60 cm surface = 7200 cm2
+  mutate(projected_area = (7200)*(cos(slope_rad))) %>% #Choi (2017) equation for projected (rain) area, 120 x 60 cm surface = 7200 cm2
   mutate(avg_mm_min = (mean_mL_min/projected_area)*10) %>%
   left_join(metadata %>% select(condition, run) %>% distinct(), by = "run")
 
