@@ -622,7 +622,7 @@ cond_meta_f <- metadata %>%
   distinct(condition, surface, rainfall, slope) %>%
   mutate(
     surface_f  = factor(surface,  levels = c("sand","concrete"),
-                        labels  = c("Sand","Concrete")),
+                        labels  = c("High Roughness","Low Roughness")),
     rainfall_f = factor(rainfall, levels = c("high","med","low"),
                         labels  = c("High","Medium","Low")),
     slope_f    = factor(slope,    levels = c(5,10,15))
@@ -658,14 +658,14 @@ cdf_by_condition <- mobilized_size_class %>%
 
 
 #Figure function
-plot_cdf_surface <- function(cdf_df, surface_name = c("Sand","Concrete"),
+plot_cdf_surface <- function(cdf_df, surface_name = c("High Roughness","Low Roughness"),
                              kind = c("count","volume"), line_size = 0.9, pt_size = 1.2) {
   surface_name <- match.arg(surface_name)
   kind         <- match.arg(kind)
   
   y_col  <- if (kind == "count") rlang::sym("frac_count") else rlang::sym("frac_volume")
-  title_ <- paste0("CDF over time by size class — ", surface_name,
-                   " (by ", toupper(kind), ")")
+  title_ <- paste0("CDF over time by size class, ", surface_name,
+                   " (by ", kind, ")")
   
   df <- cdf_df %>% dplyr::filter(surface_f == surface_name)
   
@@ -691,10 +691,10 @@ plot_cdf_surface <- function(cdf_df, surface_name = c("Sand","Concrete"),
 }
 
 #Make figures
-p_cdf_sand_count     <- plot_cdf_surface(cdf_by_condition, "Sand",     "count")
-p_cdf_sand_volume    <- plot_cdf_surface(cdf_by_condition, "Sand",     "volume")
-p_cdf_concrete_count <- plot_cdf_surface(cdf_by_condition, "Concrete", "count")
-p_cdf_concrete_vol   <- plot_cdf_surface(cdf_by_condition, "Concrete", "volume")
+p_cdf_sand_count     <- plot_cdf_surface(cdf_by_condition, "High Roughness", "count")
+p_cdf_sand_volume    <- plot_cdf_surface(cdf_by_condition, "High Roughness", "volume")
+p_cdf_concrete_count <- plot_cdf_surface(cdf_by_condition, "Low Roughness", "count")
+p_cdf_concrete_vol   <- plot_cdf_surface(cdf_by_condition, "Low Roughness", "volume")
 
 #View
 p_cdf_sand_count
