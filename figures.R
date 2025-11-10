@@ -744,7 +744,7 @@ psd_all_plot <- function(df, kind = c("count","volume"),
   
   #Choose weights & colors
   weight_col <- if (kind == "count") NULL else "Volume"
-  title_lab  <- if (kind == "count") "PSD (all particles) — by count" else "PSD (all particles) — by volume"
+  title_lab  <- if (kind == "count") "PSD (all particles), by count" else "PSD (all particles), by volume"
   pal <- magma(11)
   col <- if (kind == "count") pal[7] else pal[9]
   
