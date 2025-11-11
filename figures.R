@@ -249,7 +249,7 @@ single_heatmap <- function(df, value_col, title, limits, palette = "inferno", di
     scale_y_discrete(name = "Rainfall", labels = c(low="Low", med="Medium", high="High")) +
     scale_fill_viridis_c(option = palette, limits = limits, name = NULL, direction = direction) + 
     coord_equal() +
-    ggtitle(title) +  # ✅ title above the plot
+    ggtitle(title) +
     theme_minimal(base_size = 12) +
     theme(
       panel.grid = element_blank(),
@@ -257,7 +257,7 @@ single_heatmap <- function(df, value_col, title, limits, palette = "inferno", di
       axis.title.x = element_text(margin = margin(t = 6)),
       axis.title.y = element_text(margin = margin(r = 8)),
       legend.title = element_text(face = "bold"),
-      plot.title = element_text(face = "bold", size = 13, hjust = 0.5, margin = margin(b = 6)) # ✅ nice spacing
+      plot.title = element_text(face = "bold", size = 13, hjust = 0.5, margin = margin(b = 6))
     )
 }
 
@@ -545,14 +545,16 @@ PSA_perc_clean <- PSA_perc_mobil %>%
                         labels = c("High Roughness","Low Roughness")),
     rainfall_f = factor(rainfall,
                         levels = c("low","med","high"),
-                        labels = c("Low","Medium","High"))
+                        labels = c("Low","Medium","High")),
+    fw_count_mobilized = perc_count_mobilized/100,
+    fw_vol_mobilized = perc_volume_mobilized/100
   )
 
 
-plot_perc_mobil_grouped <- function(df, kind = c("count","volume"), diamond_gap = 1) {
+plot_perc_mobil_grouped <- function(df, kind = c("count","volume")) {
   kind <- match.arg(kind)
-  value_sym <- if (kind == "count") rlang::sym("perc_count_mobilized") else rlang::sym("perc_volume_mobilized")
-  title_lab <- if (kind == "count") "Percent mobilized by size" else "Percent mobilized by size, calculated by particle volume"
+  value_sym <- if (kind == "count") rlang::sym("fw_count_mobilized") else rlang::sym("fw_vol_mobilized")
+  title_lab <- if (kind == "count") expression("Fraction wash-off ("~F[w]~") by size") else expression("Fraction wash-off ("~F[w]~") by size, calculated by particle volume")
   
   # 5 size classes per slope bin → dodge by size
   bar_width <- 0.75
@@ -562,15 +564,12 @@ plot_perc_mobil_grouped <- function(df, kind = c("count","volume"), diamond_gap 
                  fill = size_f,            # color by size class
                  group = size_f)) +        # dodge by size within each slope
     geom_col(width = bar_width, position = pos, color = "white", linewidth = 0.3) +
-    # little diamond above each bar (same color)
-    #geom_point(aes(y = !!value_sym + diamond_gap, color = size_f),
-    #           shape = 18, size = 2, position = pos, show.legend = FALSE) +
     facet_grid(rows = vars(surface_f), cols = vars(rainfall_f)) +
     scale_fill_manual(values = size_cols, name = "Size") +
     scale_color_manual(values = size_cols, guide = "none") +
-    labs(x = "Slope (°)", y = "Percent mobilized (%)", title = title_lab, subtitle = "Rainfall Intensity") +
-    coord_cartesian(ylim = c(20, 100)) +
-    scale_y_continuous(breaks = seq(20, 100, 20),
+    labs(x = "Slope (°)", y = expression(F[w]), title = title_lab, subtitle = "Rainfall Intensity") +
+    coord_cartesian(ylim = c(0.20, 1.00)) +
+    scale_y_continuous(breaks = seq(0.20, 1.00, 0.20),
                        expand = expansion(mult = c(0, 0), add = 0)) +
     theme_minimal(base_size = 12) +
     theme(
@@ -583,8 +582,8 @@ plot_perc_mobil_grouped <- function(df, kind = c("count","volume"), diamond_gap 
 }
 
 #Build figures
-p_mobil_count  <- plot_perc_mobil_grouped(PSA_perc_clean, "count",  diamond_gap = 7)
-p_mobil_volume <- plot_perc_mobil_grouped(PSA_perc_clean, "volume", diamond_gap = 7)
+p_mobil_count  <- plot_perc_mobil_grouped(PSA_perc_clean, "count")
+p_mobil_volume <- plot_perc_mobil_grouped(PSA_perc_clean, "volume")
 
 #View
 p_mobil_count
