@@ -1085,7 +1085,11 @@ df <- percent_mobilized %>%
   mutate(Q50_count_v = Q50_count_v * 100, #Convert m/s to cm/s
          Q50_vol_v = Q50_vol_v * 100,
          Q50_count_v_sd = Q50_count_v_sd * 100,
-         Q50_vol_v_sd = Q50_vol_v_sd * 100)
+         Q50_vol_v_sd = Q50_vol_v_sd * 100,
+         perc_count_mobilized = perc_count_mobilized/100, #Convert from percent to fraction
+         perc_count_mobilized_sd = perc_count_mobilized_sd/100,
+         perc_volume_mobilized = perc_volume_mobilized/100,
+         perc_volume_mobilized_sd = perc_volume_mobilized_sd/100)
 
 vars  <- c("Q50_count_v", "Q50_vol_v", "Q50_count_v_sd", "Q50_vol_v_sd", 
            "perc_count_mobilized","perc_volume_mobilized", "perc_count_mobilized_sd", "perc_volume_mobilized_sd")
@@ -1163,7 +1167,9 @@ minmax_by_factor
 PSA_summary_data <- percent_mobilized %>%
   select(condition, size_class, perc_count_mobilized, perc_volume_mobilized) %>%
   left_join(PSA_qtile_speeds %>% select(condition, size_class, Q50_count_v, Q50_vol_v), by = c("condition", "size_class")) %>%
-  left_join(metadata %>% select(-c(run, replicate)) %>% distinct(), by = "condition")
+  left_join(metadata %>% select(-c(run, replicate)) %>% distinct(), by = "condition") %>%
+  mutate(perc_count_mobilized = perc_count_mobilized/100, #Convert from percent to fraction
+         perc_volume_mobilized = perc_volume_mobilized/100)
 
 # Encode factors
 PSA_summary_data <- PSA_summary_data %>%
