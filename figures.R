@@ -16,6 +16,7 @@ metadata <- read.csv("data/input_data/metadata.csv")
 runoff_data <- read.csv("data/output_data/runoff_data_vol.csv")
 PSA_velocity <- read.csv("data/output_data/PSA_velocity.csv")
 PSA_perc_mobil <- read.csv("data/output_data/PSA_percent_mobilized.csv")
+vid_data <- read.csv("data/output_data/video_data.csv")
 
 #Wash off model plots ----
 #Facet order + labels
@@ -174,6 +175,13 @@ q50_mass_flux <- q50_mass_flux %>%
     surface_f  = factor(surface, levels = c("sand", "concrete"))
   )
 
+vid_data <- vid_data %>%
+  mutate(
+    slope_f    = factor(slope, levels = c(5, 10, 15)),
+    rainfall_f = factor(rainfall, levels = c("low", "med", "high")),
+    surface_f  = factor(surface, levels = c("sand", "concrete"))
+  )
+
 slope_tick_labels <- c(`5` = "5º", `10` = "10º", `15` = "15º")
 rain_tick_labels  <- c(low = "Low", med = "Medium", high = "High")
 
@@ -229,6 +237,16 @@ heatmaps
 #Save figs
 ggsave("figures/heatmaps.png", heatmaps, width = 9, height = 7, dpi = 600)
 #ggsave("figures/heatmaps.pdf",  heatmaps, width = 10, height = 8)
+
+##Make dissipation time heatmap for SI ----
+dis_lim <- range(vid_data$dis_time_min, na.rm = TRUE)
+p_dis <- make_heatmap(vid_data, "dis_time_min", paste0("Dissipation time",
+                                                    "\n(mins)"),   dis_lim, palette = "magma", direction = -1)
+
+ggsave("figures/dis_heatmap.png", p_dis, width = 4, height = 5, dpi = 600, bg = "white")
+
+
+
 
 
 #Heatmap for flow depth ----
