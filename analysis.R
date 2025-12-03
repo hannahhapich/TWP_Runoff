@@ -10,7 +10,7 @@ metadata <- read.csv("data/input_data/metadata.csv")
 rain_data <- read.csv("data/input_data/rain_data.csv")
 
 #Convert runoff mass to volume -----
-# Jones (1992) function: density of air-saturated water
+#Jones (1992) function: density of air-saturated water
 jones_density <- function(temp_C) {
   density_kg_m3 <- 999.84847 +
     6.337563e-2 * temp_C -
@@ -18,19 +18,19 @@ jones_density <- function(temp_C) {
     6.943248e-6 * temp_C^3 -
     3.821216e-8 * temp_C^4
   
-  # Convert to g/mL
+  #Convert to g/mL
   density_g_mL <- density_kg_m3 / 1000
   return(density_g_mL)
 }
 
-# Calculate density
+#Calculate density
 runoff_data$density_g_mL <- jones_density(runoff_data$water_temp_C)
 
-# Replace missing density rows with mean of available values
+#Replace missing density rows with mean of available values
 mean_density <- mean(runoff_data$density_g_mL, na.rm = TRUE)
 runoff_data$density_g_mL[is.na(runoff_data$density_g_mL)] <- mean_density
 
-# Calculate volume (mL)
+#Calculate volume (mL)
 runoff_data$volume_mL <- runoff_data$water_mass_g / runoff_data$density_g_mL
 
 #Join with condition
@@ -38,8 +38,8 @@ runoff_data <- runoff_data %>%
   left_join(metadata %>% select(condition, run) %>% distinct(), by = "run")
 
 ##Approximate runoff steady state ----
-tol   <- 50 # mL tolerance
-t_min <- 1 # search window (min)
+tol   <- 50 #mL tolerance
+t_min <- 1 #search window (min)
 t_max <- 5
 
 runoff_data2 <- runoff_data %>%
@@ -110,11 +110,11 @@ print(mean(mass_variability_filtered$cv)) #Mean CV = 10.672%
 ###KS tests for mass flux distributions ----
 #Mass based KS test function
 ks_mass <- function(df) {
-  # Get all pairwise combinations of replicates
+  #Get all pairwise combinations of replicates
   replicates <- unique(df$replicate)
   combs <- combn(replicates, 2, simplify = FALSE)
   
-  # Run ks.test for each replicate pair
+  #Run ks.test for each replicate pair
   map_dfr(combs, function(pair) {
     x <- df$sample_mass_g[df$replicate == pair[1]]
     y <- df$sample_mass_g[df$replicate == pair[2]]
@@ -247,7 +247,7 @@ wash_off_avg <- wash_off_mass %>%
 model_check <- nls( #Nonlinear least squares
   frac_mean ~ cf * (1 - exp(-k * i_mean * t)),
   data = wash_off_avg %>% filter(condition == 1),
-  start = list(cf = 0.5, k = 0.01)  # starting guesses
+  start = list(cf = 0.5, k = 0.01)  #Starting guesses
 )
 summary(model_check) #Capacity factor = 0.82, k = 0.091, RSE = 0.03 (good fit, within 3% predicted curve)
 
@@ -580,10 +580,10 @@ df %>% select(max_frac, sd_frac, rainfall, surface) %>%
 
 vars  <- c("k_prime","f_k","max_frac","Q50_time_min_mean","rse","sd_frac","Q50_time_min_sd")
 
-# single-factor groupings you want summarized separately
+#Single-factor groupings (summarized separately)
 group_vars <- c("surface","rainfall","slope")
 
-# metrics for which you want min/max groups called out
+#Metrics to pull min/max groups for
 minmax_targets <- c("k_prime","f_k","max_frac","Q50_time_min_mean")
 
 #Averages by each individual factor
@@ -598,7 +598,7 @@ averages_by_factor <- map(group_vars, function(gv) {
     arrange(.data[[gv]])
 }) %>% set_names(group_vars)
 
-# Example: view each table
+#View individual tables
 averages_by_factor$surface
 averages_by_factor$rainfall
 averages_by_factor$slope
@@ -741,9 +741,9 @@ mob_sum <- mobilized_size_class %>%
 #PSA KS test functions
 ks_psa_count <- function(df) {
   replicates <- unique(df$run)
-  combs <- combn(replicates, 2, simplify = FALSE) # Get all pairwise combinations of replicates
+  combs <- combn(replicates, 2, simplify = FALSE) #Get pairwise combinations of replicates
   
-  map_dfr(combs, function(pair) { # Run ks.test for each replicate pair
+  map_dfr(combs, function(pair) { #Run ks.test for each replicate pair
     x <- df$mobilized_count[df$run == pair[1]]
     y <- df$mobilized_count[df$run == pair[2]]
     ks <- ks.test(x, y)
@@ -757,9 +757,9 @@ ks_psa_count <- function(df) {
 
 ks_psa_vol <- function(df) {
   replicates <- unique(df$run)
-  combs <- combn(replicates, 2, simplify = FALSE) # Get all pairwise combinations of replicates
+  combs <- combn(replicates, 2, simplify = FALSE) #Get pairwise combinations of replicates
   
-  map_dfr(combs, function(pair) { # Run ks.test for each replicate pair
+  map_dfr(combs, function(pair) { #Run ks.test for each replicate pair
     x <- df$mobilized_volume[df$run == pair[1]]
     y <- df$mobilized_volume[df$run == pair[2]]
     ks <- ks.test(x, y)
@@ -1132,8 +1132,8 @@ pull_level_chr <- function(df, col) {
 
 minmax_by_factor <- purrr::map_dfr(group_vars, function(gv) {
   avg_tbl <- averages_by_factor[[gv]]
-  val_for      <- function(metric) paste0("avg_", metric)           # mean column
-  val_for_sd   <- function(metric) paste0("avg_", metric, "_sd")    # paired SD col if it exists
+  val_for      <- function(metric) paste0("avg_", metric)           #Mean column
+  val_for_sd   <- function(metric) paste0("avg_", metric, "_sd")    #Paired SD col (if it exists)
   
   purrr::map_dfr(minmax_targets, function(metric) {
     valcol   <- val_for(metric)
@@ -1171,7 +1171,7 @@ PSA_summary_data <- percent_mobilized %>%
   mutate(perc_count_mobilized = perc_count_mobilized/100, #Convert from percent to fraction
          perc_volume_mobilized = perc_volume_mobilized/100)
 
-# Encode factors
+#Encode factors
 PSA_summary_data <- PSA_summary_data %>%
   mutate(
     slope    = factor(slope),

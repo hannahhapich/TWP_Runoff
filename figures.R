@@ -185,7 +185,7 @@ vid_data <- vid_data %>%
 slope_tick_labels <- c(`5` = "5º", `10` = "10º", `15` = "15º")
 rain_tick_labels  <- c(low = "Low", med = "Medium", high = "High")
 
-# Function to make one 3×3 heatmap figure (faceted by surface rows)
+#Function to make one 3×3 heatmap figure (faceted by surface rows)
 make_heatmap <- function(df, value_col, title, limits, palette = "inferno", direction = 1) {
   ggplot(df, aes(x = slope_f, y = rainfall_f, fill = .data[[value_col]])) +
     geom_tile(color = "white", linewidth = 0.7) +
@@ -330,7 +330,7 @@ flux_by_cond <- flux_data %>%
 #Set colors + shapes
 mcols <- viridisLite::magma(100)
 surf_cols   <- c(concrete = mcols[20], sand = mcols[60])
-surf_shapes <- c(concrete = 16,        sand = 17)  # 16 = filled circle, 17 = filled triangle
+surf_shapes <- c(concrete = 16, sand = 17)  #16 = filled circle, 17 = filled triangle
 
 #Labels for each variable
 label_map <- c(
@@ -353,13 +353,13 @@ make_xy_plot <- function(df, xvar, yvar) {
   ggplot(df, aes_string(x = xvar, y = yvar, color = "surface", shape = "surface")) +
     geom_point(size = 3) +
     scale_color_manual(
-      values = surf_cols,                      # names: sand/concrete
-      breaks = c("sand","concrete"),           # order in legend (High first)
+      values = surf_cols,             
+      breaks = c("sand","concrete"),  
       labels = c(sand = "High", concrete = "Low"),
       name   = "Surface\nRoughness"
     ) +
     scale_shape_manual(
-      values = surf_shapes,                    # names: sand/concrete
+      values = surf_shapes,            
       breaks = c("sand","concrete"),
       labels = c(sand = "High", concrete = "Low"),
       name   = "Surface\nRoughness"
@@ -415,13 +415,13 @@ corr_annot <- function(df, xvar, yvar, corner = c("br","tr"),
   rho  <- unname(ct$estimate)
   pval <- ct$p.value
   plab <- if (pval < 1e-3) {
-    formatC(pval, format = "e", digits = 1)    # scientific for very small
+    formatC(pval, format = "e", digits = 1)    #Scientific notation for very small vals
   } else {
-    formatC(pval, format = "f", digits = 3)    # 3 decimal places otherwise
+    formatC(pval, format = "f", digits = 3)    #3 decimal places otherwise
   }
   
   xr <- range(d[[xvar]], na.rm = TRUE);    yr <- range(d[[yvar]], na.rm = TRUE)
-  x  <- xr[2] - 0.02 * diff(xr)            # right
+  x  <- xr[2] - 0.02 * diff(xr) 
   y  <- if (corner == "br") yr[1] + 0.02 * diff(yr) else yr[2] - 0.02 * diff(yr)
   
   ggplot2::geom_text(
@@ -501,22 +501,22 @@ plot_psa <- function(df, kind = c("count","volume")) {
     title_lab <- expression("Quartile velocities by size, calculated by particle volume")
   }
   
-  # 5 size classes per slope bin → dodge by size (order from size_labels)
+  #5 size classes per slope bin → dodge by size (order from size_labels)
   pos <- position_dodge(width = 0.85)
   tick_w <- 0.28 #Tick marks
   line_w <- 0.7
   
   ggplot(df, aes(x = slope_f, y = !!q50, color = size_f, group = size_f)) +
-    # vertical line from Q25 to Q75
+    #Vertical line from Q25 to Q75
     geom_linerange(aes(ymin = !!q25, ymax = !!q75),
                    position = pos, linewidth = line_w) +
-    # small tick at Q25
+    #Small tick at Q25
     geom_errorbar(aes(ymin = !!q25, ymax = !!q25),
                   position = pos, width = tick_w, linewidth = line_w, show.legend = FALSE) +
-    # small tick at Q75
+    #Small tick at Q75
     geom_errorbar(aes(ymin = !!q75, ymax = !!q75),
                   position = pos, width = tick_w, linewidth = line_w, show.legend = FALSE) +
-    # Q50 point
+    #Q50 point
     geom_point(position = pos, size = 2.5) +
     facet_grid(rows = vars(surface_f), cols = vars(rainfall_f)) +
     scale_color_manual(values = size_cols, name = "Size") +
@@ -526,7 +526,7 @@ plot_psa <- function(df, kind = c("count","volume")) {
     theme(
       panel.grid.minor = element_blank(),
       strip.text = element_text(face = "bold"),
-      plot.subtitle= element_text(hjust = 0.5,  # center subtitle
+      plot.subtitle= element_text(hjust = 0.5,
                                   margin = margin(b = 6))
     )
 }
@@ -574,13 +574,13 @@ plot_perc_mobil_grouped <- function(df, kind = c("count","volume")) {
   value_sym <- if (kind == "count") rlang::sym("fw_count_mobilized") else rlang::sym("fw_vol_mobilized")
   title_lab <- if (kind == "count") expression("Fraction wash-off ("~F[w]~") by size") else expression("Fraction wash-off ("~F[w]~") by size, calculated by particle volume")
   
-  # 5 size classes per slope bin → dodge by size
+  #5 size classes per slope bin → dodge by size
   bar_width <- 0.75
   pos <- position_dodge2(width = 0.90, padding = 0.25, preserve = "single")
   
   ggplot(df, aes(x = slope_f, y = !!value_sym,
-                 fill = size_f,            # color by size class
-                 group = size_f)) +        # dodge by size within each slope
+                 fill = size_f,            #Color by size class
+                 group = size_f)) +        #Dodge by size within each slope
     geom_col(width = bar_width, position = pos, color = "white", linewidth = 0.3) +
     facet_grid(rows = vars(surface_f), cols = vars(rainfall_f)) +
     scale_fill_manual(values = size_cols, name = "Size") +
@@ -594,7 +594,7 @@ plot_perc_mobil_grouped <- function(df, kind = c("count","volume")) {
       panel.grid.minor = element_blank(),
       strip.text = element_text(face = "bold"),
       panel.spacing.y = unit(1.4, "lines"),
-      plot.subtitle= element_text(hjust = 0.5,  # center subtitle
+      plot.subtitle= element_text(hjust = 0.5,
                                   margin = margin(b = 6))
     )
 }
@@ -820,11 +820,11 @@ plot_shape_overlay <- function(df, x,
                                title   = NULL,
                                y_range = NULL,
                                rho_mode   = c("auto","manual","none"),
-                               rho_vals   = NULL,          #named: c(concrete=..., sand=...)
+                               rho_vals   = NULL,
                                rho_method = c("spearman","pearson"),
                                rho_digits = 2,
                                beta_mode  = c("auto","manual","none"),
-                               beta_vals  = NULL,          #named: c(concrete=..., sand=...)
+                               beta_vals  = NULL,
                                beta_digits = 2,
                                rho_size   = 5,
                                rho_gap    = 0.18) {
@@ -835,13 +835,12 @@ plot_shape_overlay <- function(df, x,
   
   legend_order <- c("sand","concrete")
   
-  # levels used everywhere
   lvls <- intersect(legend_order, levels(factor(df$surface)))
   cols <- surf_cols[lvls]; names(cols) <- lvls
   lbls <- c(sand = "High Roughness", concrete = "Low Roughness")[lvls]
   
-  # compute stacking index so FIRST legend item goes on TOP
-  rank_idx  <- match(lvls, legend_order)         # 1 for "sand", 2 for "concrete"
+  #Compute stacking index so first legend item goes on top
+  rank_idx  <- match(lvls, legend_order)
   stack_idx <- length(lvls) - rank_idx
   
   y_rng <- if (is.null(y_range)) range(df$velocity_norm, na.rm = TRUE) else y_range
