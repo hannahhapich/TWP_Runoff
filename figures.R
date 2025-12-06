@@ -874,6 +874,17 @@ ggsave("figures/psd_all_volume.png", p_psd_volume, width = 8, height = 5, dpi = 
 #Read in data (warning, takes a couple minutes)
 shape_data <- read.csv("data/output_data/shape_data.csv")
 
+#Stats
+mean(shape_data$elongation)
+sd(shape_data$elongation)
+mean(shape_data$flatness)
+sd(shape_data$flatness)
+mean(shape_data$Sphericity)
+sd(shape_data$Sphericity)
+mean(shape_data$Convexity)
+sd(shape_data$Convexity)
+
+#Choose colors
 pal_full <- magma(11)
 cols_7_9 <- pal_full[c(7, 9)]
 
