@@ -225,10 +225,10 @@ p_q50 <- make_heatmap(q50_mass_flux, "Q50_time_min_mean","Q50 (min)",   q50_lim,
 p_max_frac <- make_heatmap(q50_mass_flux, "max_frac","Fw",   max_frac_lim, palette = "magma")
 
 #Arrange side-by-side
-heatmaps <- (p_kp + theme(legend.position = "right")) +
-  (p_fk + theme(legend.position = "right")) +
-  (p_q50 + theme(legend.position = "right")) +
+heatmaps <- (p_q50 + theme(legend.position = "right")) +
   (p_max_frac + theme(legend.position = "right")) +
+  (p_kp + theme(legend.position = "right")) +
+  (p_fk + theme(legend.position = "right")) +
   plot_layout(ncol = 2, widths = c(1,1), guides = "keep")
 
 #View
