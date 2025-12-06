@@ -155,7 +155,83 @@ ggsave("figures/washoff_model_fit_concrete.png", plot_concrete, width = 7, heigh
 #ggsave("figures/washoff_model_fit_sand.pdf", plot_sand, width = 7, height = 5, dpi = 600)
 #ggsave("figures/washoff_model_fit_concrete.pdf", plot_concrete, width = 7, height = 5, dpi = 600)
 
+##Legent for wash-off model plots ----
+#Dummy data
+legend_df <- tibble(
+  x    = 1, y    = 1,
+  type = factor(
+    c("measured mass flux",
+      "wash-off model fit",
+      "measured runoff volume"),
+    levels = c("measured mass flux",
+               "wash-off model fit",
+               "measured runoff volume")
+  )
+)
 
+legend_plot <- ggplot(legend_df, aes(x, y, colour = type)) +
+  geom_line(aes(linetype = type)) +
+  geom_point(aes(shape = type)) +
+  scale_colour_manual(
+    values = c(
+      "measured mass flux"   = "black",
+      "wash-off model fit"   = "black",
+      "measured runoff volume" = "lightblue"
+    ),
+    breaks = c("measured mass flux",
+               "wash-off model fit",
+               "measured runoff volume"),
+    labels = c("measured mass flux",
+               "wash-off model fit",
+               "measured runoff volume"),
+    name = NULL   # no legend title
+  ) +
+  # Shapes: only the first is a dot, others are "no point"
+  scale_shape_manual(
+    values = c(
+      "measured mass flux"   = 16,  # filled circle
+      "wash-off model fit"   = NA,
+      "measured runoff volume" = NA
+    )
+  ) +
+  # Linetypes: only the two lines get a solid line
+  scale_linetype_manual(
+    values = c(
+      "measured mass flux"   = "blank",  # no line
+      "wash-off model fit"   = "solid",
+      "measured runoff volume" = "solid"
+    )
+  ) +
+  guides(
+    colour = guide_legend(
+      direction = "horizontal",
+      nrow = 1,
+      byrow = TRUE,
+      override.aes = list(
+        shape    = c(16, NA, NA),
+        linetype = c("blank", "solid", "solid")
+      )
+    ),
+    shape = "none",
+    linetype = "none"
+  ) +
+  theme_void() +
+  theme(
+    legend.position = "bottom",
+    legend.justification = "center",
+    legend.text = element_text(size = 10)
+  )
+
+#Extract legend
+legend_only <- cowplot::get_legend(legend_plot)
+
+#Turn legend into a ggplot object for saving
+legend_gg <- cowplot::ggdraw(legend_only)
+
+#Save
+ggsave("figures/washoff_legend_only.png",
+       legend_gg,
+       width = 6, height = 1, dpi = 600, bg = "white")
 
 
 
