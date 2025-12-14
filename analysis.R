@@ -81,8 +81,10 @@ print(mean(blank_mass$sample_mass_g)) #mean = 0.005259625 g
 print(sd(blank_mass$sample_mass_g)) #SD = 0.006978204 g
 print(mean(blank_mass$sample_mass_g)/mean(sample_mass$raw_mass_g)) #blank % of avg sample mass = 4.06%
 print(sd(blank_mass$sample_mass_g)/mean(sample_mass$raw_mass_g)) #blank SD % of avg sample mass = 5.39%
-
-
+print(min(blank_mass$sample_mass_g)) #min blank mass = 0.00069
+print(max(blank_mass$sample_mass_g)) #max blank mass = 0.05441
+print(min(sample_mass$raw_mass_g)) #min sample mass = 0.00364
+print(max(sample_mass$raw_mass_g)) #max sample mass = 0.78407
 
 #Variability between replicates ----
 ##Mass-based variability between individual samples ----
