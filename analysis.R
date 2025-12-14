@@ -84,6 +84,7 @@ print(sd(blank_mass$sample_mass_g)/mean(sample_mass$raw_mass_g)) #blank SD % of 
 print(min(blank_mass$sample_mass_g)) #min blank mass = 0.00069
 print(max(blank_mass$sample_mass_g)) #max blank mass = 0.05441
 print(min(sample_mass$raw_mass_g)) #min sample mass = 0.00364
+print(mean(sample_mass$raw_mass_g)) #mean sample mass = 0.1293979
 print(max(sample_mass$raw_mass_g)) #max sample mass = 0.78407
 
 #Variability between replicates ----
