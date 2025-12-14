@@ -80,7 +80,7 @@ sample_mass <- mass_data %>% filter(!start_time_min == "N/A") %>%
 print(mean(blank_mass$sample_mass_g)) #mean = 0.005259625 g
 print(sd(blank_mass$sample_mass_g)) #SD = 0.006978204 g
 print(mean(blank_mass$sample_mass_g)/mean(sample_mass$raw_mass_g)) #blank % of avg sample mass = 4.06%
-
+print(sd(blank_mass$sample_mass_g)/mean(sample_mass$raw_mass_g)) #blank SD % of avg sample mass = 5.39%
 
 
 
