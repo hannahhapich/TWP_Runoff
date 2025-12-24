@@ -1162,6 +1162,15 @@ minmax_by_factor <- purrr::map_dfr(group_vars, function(gv) {
 #View
 minmax_by_factor
 
+#Shape data stats
+mean(shape_data$elongation)
+sd(shape_data$elongation)
+mean(shape_data$flatness)
+sd(shape_data$flatness)
+mean(shape_data$Sphericity)
+sd(shape_data$Sphericity)
+mean(shape_data$Convexity)
+sd(shape_data$Convexity)
 
 
 ##Significance testing ----
