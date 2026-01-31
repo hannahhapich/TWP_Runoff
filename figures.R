@@ -6,6 +6,8 @@ library(scales)
 library(cowplot)
 library(rlang)
 library(grid)
+#library(akima)
+library(viridisLite)
 
 #Load data ----
 flux_data <- read.csv("data/output_data/flux_data.csv")
@@ -17,6 +19,146 @@ runoff_data <- read.csv("data/output_data/runoff_data_vol.csv")
 PSA_velocity <- read.csv("data/output_data/PSA_velocity.csv")
 PSA_perc_mobil <- read.csv("data/output_data/PSA_percent_mobilized.csv")
 vid_data <- read.csv("data/output_data/video_data.csv")
+calibration_data <- read.csv("data/input_data/calibration_data.csv")
+
+#Calibration heat maps ----
+y_full_min <- -13
+y_full_max <- 117
+
+crop_x_width <- 60
+crop_y_height <- 120
+
+nx <- 120  #smoothing params
+ny <- 240
+
+fill_title <- "Rainfall Intensity\n(mm/min)"
+heat_cols <- viridisLite::turbo(256)
+
+#Gaussian smoothing control (smaller = more visible data points; larger = smoother)
+sigma <- 18
+
+#Gaussian smoother onto a grid
+gaussian_grid <- function(df, xo, yo, sigma) {
+  grid <- expand.grid(x = xo, y = yo)
+  
+  #Compute weighted average at each grid point
+  z <- vapply(seq_len(nrow(grid)), function(i) {
+    dx <- df$x - grid$x[i]
+    dy <- df$y - grid$y[i]
+    w  <- exp(-(dx^2 + dy^2) / (2 * sigma^2))
+    
+    if (sum(w) == 0) return(NA_real_)
+    sum(w * df$avg_mm_min) / sum(w)
+  }, numeric(1))
+  
+  grid$z <- z
+  grid
+}
+
+make_panel_gaussian <- function(df_one_group, x_full_min, x_full_max,
+                                y_full_min, y_full_max,
+                                crop_x_width, crop_y_height,
+                                nx, ny, sigma,
+                                panel_label) {
+  
+  df_one_group <- df_one_group %>%
+    filter(is.finite(x), is.finite(y), is.finite(avg_mm_min))
+  
+  #Center-crop bounds based on full domain
+  x_center <- (x_full_min + x_full_max) / 2
+  x_crop_min <- x_center - crop_x_width / 2
+  x_crop_max <- x_center + crop_x_width / 2
+  
+  y_center <- (y_full_min + y_full_max) / 2
+  y_crop_min <- y_center - crop_y_height / 2
+  y_crop_max <- y_center + crop_y_height / 2
+  
+  #Build the full grid
+  xo <- seq(x_full_min, x_full_max, length.out = nx)
+  yo <- seq(y_full_min, y_full_max, length.out = ny)
+  
+  surf <- gaussian_grid(df_one_group, xo, yo, sigma)
+  
+  #Crop after smoothing
+  surf_crop <- surf %>%
+    filter(x >= x_crop_min, x <= x_crop_max,
+           y >= y_crop_min, y <= y_crop_max)
+  
+  #Set legend range
+  zmin <- min(surf_crop$z, na.rm = TRUE)
+  zmax <- max(surf_crop$z, na.rm = TRUE)
+  breaks3 <- c(zmin, (zmin + zmax)/2, zmax)
+  
+  ggplot(surf_crop, aes(x = x, y = y, fill = z)) +
+    geom_raster(interpolate = TRUE) +
+    #Show the actual measurement locations as dots
+    geom_point(
+      data = df_one_group %>%
+        filter(x >= x_crop_min, x <= x_crop_max,
+               y >= y_crop_min, y <= y_crop_max),
+      aes(x = x, y = y),
+      inherit.aes = FALSE,
+      size = 1.6
+    ) +
+    coord_fixed(expand = FALSE) +
+    scale_fill_gradientn(
+      colours = heat_cols,
+      name = fill_title,
+      breaks = breaks3,
+      labels = scales::label_number(accuracy = 0.01, trim = TRUE)
+    ) +
+    labs(x = NULL, y = NULL) +
+    theme_minimal(base_size = 11) +
+    theme(
+      panel.grid = element_blank(),
+      axis.text = element_blank(),
+      axis.ticks = element_blank(),
+      legend.position = "right",
+      plot.margin = margin(6, 6, 6, 6),
+      legend.title = element_text(margin = margin(b = 8))
+    )
+}
+
+#Build figure
+calibration_data <- calibration_data %>%
+  mutate(rainfall = factor(rainfall, levels = c("low", "med", "high")))
+
+x_full_min <- min(calibration_data$x, na.rm = TRUE)
+x_full_max <- max(calibration_data$x, na.rm = TRUE)
+
+p_low  <- make_panel_gaussian(filter(calibration_data, rainfall == "low"),
+                              x_full_min, x_full_max, y_full_min, y_full_max,
+                              crop_x_width, crop_y_height, nx, ny, sigma, "Low")
+
+p_med  <- make_panel_gaussian(filter(calibration_data, rainfall == "med"),
+                              x_full_min, x_full_max, y_full_min, y_full_max,
+                              crop_x_width, crop_y_height, nx, ny, sigma, "Medium")
+
+p_high <- make_panel_gaussian(filter(calibration_data, rainfall == "high"),
+                              x_full_min, x_full_max, y_full_min, y_full_max,
+                              crop_x_width, crop_y_height, nx, ny, sigma, "High")
+
+label_row <- plot_grid(
+  ggdraw() + draw_label("Low",    fontface = "bold", size = 12),
+  ggdraw() + draw_label("Medium", fontface = "bold", size = 12),
+  ggdraw() + draw_label("High",   fontface = "bold", size = 12),
+  nrow = 1
+)
+
+plot_row <- plot_grid(p_low, p_med, p_high, nrow = 1, align = "hv", axis = "tb")
+
+#Build multi-pane figure
+final_fig <- plot_grid(plot_row, label_row, ncol = 1, rel_heights = c(1, 0.08))
+final_fig
+
+#Save
+ggsave("figures/calibration_heatmaps.png",
+       final_fig,
+       width = 9, height = 3, dpi = 600, bg = "white")
+
+
+
+
 
 #Wash off model plots ----
 #Facet order + labels
