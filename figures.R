@@ -20,6 +20,7 @@ PSA_velocity <- read.csv("data/output_data/PSA_velocity.csv")
 PSA_perc_mobil <- read.csv("data/output_data/PSA_percent_mobilized.csv")
 vid_data <- read.csv("data/output_data/video_data.csv")
 calibration_data <- read.csv("data/input_data/calibration_data.csv")
+model_envelope <- read.csv("data/output_data/model_envelope.csv")
 
 #Calibration heat maps ----
 y_full_min <- -13
@@ -221,6 +222,13 @@ plot_surface <- function(surface_type = "sand") {
     filter(condition %in% conds_this_surface) %>%
     left_join(params_surface %>% select(condition, surface, rainfall_f, slope_f), by = "condition")
   
+  envelope_surface <- model_envelope %>%
+    filter(surface == surface_type) %>%
+    left_join(
+      params_surface %>% select(condition, rainfall_f, slope_f),
+      by = "condition"
+    )
+  
   #Dynamic annotation placement per facet
   annos <- mass_surface %>%
     group_by(condition, rainfall_f, slope_f) %>%
@@ -258,6 +266,13 @@ plot_surface <- function(surface_type = "sand") {
     geom_line(data = curves_surface,
               aes(x = t, y = pred_frac),
               color = "black", linewidth = 1) +
+    #Replicate envelope
+    geom_ribbon(
+      data = envelope_surface,
+      aes(x = t, ymin = pred_min, ymax = pred_max),
+      inherit.aes = FALSE,
+      alpha = 0.20
+    ) +
     #Annotations
     geom_text(data = annos,
               aes(x = x_anno, y = y_anno,
@@ -297,7 +312,7 @@ ggsave("figures/washoff_model_fit_concrete.png", plot_concrete, width = 7, heigh
 #ggsave("figures/washoff_model_fit_sand.pdf", plot_sand, width = 7, height = 5, dpi = 600)
 #ggsave("figures/washoff_model_fit_concrete.pdf", plot_concrete, width = 7, height = 5, dpi = 600)
 
-##Legent for wash-off model plots ----
+##Legend for wash-off model plots ----
 #Dummy data
 legend_df <- tibble(
   x    = 1, y    = 1,
@@ -328,7 +343,7 @@ legend_plot <- ggplot(legend_df, aes(x, y, colour = type)) +
                "measured runoff volume"),
     name = NULL   # no legend title
   ) +
-  # Shapes: only the first is a dot, others are "no point"
+  #Shapes: only the first is a dot, others are "no point"
   scale_shape_manual(
     values = c(
       "measured mass flux"   = 16,  # filled circle
@@ -336,7 +351,7 @@ legend_plot <- ggplot(legend_df, aes(x, y, colour = type)) +
       "measured runoff volume" = NA
     )
   ) +
-  # Linetypes: only the two lines get a solid line
+  #Linetypes: only the two lines get a solid line
   scale_linetype_manual(
     values = c(
       "measured mass flux"   = "blank",  # no line

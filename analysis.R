@@ -497,6 +497,74 @@ ggplot() +
        title = "Coupled model (surface-specific c*): observed vs fitted by condition") +
   theme_minimal()
 
+##Build model parameter replicate envelopes ----
+#Replicate-level RSS
+rss_for_condition_rep <- function(df_cond, cval, kprime) {
+  i_val <- unique(df_cond$i)[1]
+  fcap  <- cval * kprime
+  if (is.na(i_val) || cval <= 0 || kprime <= 0 || fcap > 1) return(Inf)
+  pred <- fcap * (1 - exp(-kprime * i_val * df_cond$t))
+  sum((df_cond$frac - pred)^2, na.rm = TRUE)
+}
+
+fit_kprime_for_c_rep <- function(df_cond, cval) {
+  upper <- (1 / cval) - 1e-12
+  if (upper <= 0) return(NULL)
+  opt <- optimize(function(kp) rss_for_condition_rep(df_cond, cval, kp),
+                  interval = c(1e-8, upper))
+  list(kprime = opt$minimum,
+       fcap   = cval * opt$minimum)
+}
+
+refit_at_cstar_rep <- function(df_cond, cval) {
+  f <- fit_kprime_for_c_rep(df_cond, cval)
+  if (is.null(f)) return(tibble::tibble())
+  tibble::tibble(k_prime = f$kprime, f_k = f$fcap, c_mm = cval)
+}
+
+#Fit replicate parameters
+rep_params <- wash_off_mass %>%
+  dplyr::left_join(c_star_by_surface, by = "surface") %>%
+  dplyr::group_by(condition, surface, replicate, c_star) %>%
+  dplyr::group_modify(~ refit_at_cstar_rep(.x, unique(.y$c_star))) %>%
+  dplyr::ungroup()
+
+#Get i and t_max per replicate
+rep_meta <- wash_off_mass %>%
+  dplyr::group_by(condition, surface, replicate) %>%
+  dplyr::summarise(
+    i_val = unique(i)[1],
+    t_max = max(t, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+#Build replicate curves
+rep_curves <- rep_params %>%
+  dplyr::inner_join(rep_meta, by = c("condition","surface","replicate")) %>%
+  dplyr::mutate(t_max = pmin(t_max, 30)) %>%
+  dplyr::group_by(condition, surface, replicate) %>%
+  dplyr::group_modify(~{
+    t_seq <- seq(0, unique(.x$t_max), length.out = 200)
+    tibble::tibble(
+      t = t_seq,
+      pred_frac = unique(.x$f_k) * (1 - exp(-(unique(.x$k_prime) * unique(.x$i_val)) * t_seq))
+    )
+  }) %>%
+  dplyr::ungroup()
+
+#Summarize to envelope per condition x time
+model_envelope <- rep_curves %>%
+  dplyr::group_by(condition, surface, t) %>%
+  dplyr::summarise(
+    pred_min = min(pred_frac, na.rm = TRUE),
+    pred_max = max(pred_frac, na.rm = TRUE),
+    pred_q25 = stats::quantile(pred_frac, 0.25, na.rm = TRUE),
+    pred_q75 = stats::quantile(pred_frac, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+
 
 
 #Mass-based Q50 (from linear interpolation) ----
@@ -689,6 +757,7 @@ summary(anova_Fw)
 #Data export ----
 write.csv(water_flux, "data/output_data/flux_data.csv", row.names = F)
 write.csv(param_table_coupled, "data/output_data/muthusamy_model_parameters.csv" , row.names = F)
+write.csv(model_envelope, "data/output_data/model_envelope.csv" , row.names = F)
 write.csv(mass_qtile_summary, "data/output_data/quartile_mass_flux.csv" , row.names = F)
 write.csv(sample_mass_cumulative, "data/output_data/mass_cumulative.csv" , row.names = F)
 write.csv(runoff_data, "data/output_data/runoff_data_vol.csv" , row.names = F)
