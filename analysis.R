@@ -87,6 +87,33 @@ print(min(sample_mass$raw_mass_g)) #min sample mass = 0.00364
 print(mean(sample_mass$raw_mass_g)) #mean sample mass = 0.1293979
 print(max(sample_mass$raw_mass_g)) #max sample mass = 0.78407
 
+#Recovery %
+mass_summary <- mass_data %>%
+  filter(end_time_min != "Blank") %>%
+  group_by(run, slope, surface, rainfall) %>%
+  summarise(
+    total_mass_g = sum(sample_mass_g, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  group_by(slope, surface, rainfall) %>%
+  summarise(
+    mean_total_mass_g = mean(total_mass_g, na.rm = TRUE),
+    n_runs = n(),
+    .groups = "drop"
+  )
+
+mass_summary
+
+mass_summary_no_slope <- mass_summary %>%
+  group_by(surface, rainfall) %>%
+  summarise(
+    mean_total_mass_g = mean(mean_total_mass_g, na.rm = TRUE),
+    n_slope_groups = n(),
+    .groups = "drop"
+  )
+
+mass_summary_no_slope
+
 #Variability between replicates ----
 ##Mass-based variability between individual samples ----
 
