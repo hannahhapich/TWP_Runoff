@@ -282,7 +282,7 @@ model_check <- nls( #Nonlinear least squares
 summary(model_check) #Capacity factor = 0.82, k = 0.091, RSE = 0.03 (good fit, within 3% predicted curve)
 
 #Plot data points vs model fit for visual confirmation
-df_cond1 <- wash_off_avg %>% filter(condition == 1)  # or however you're labeling condition 1
+df_cond1 <- wash_off_avg %>% filter(condition == 1)
 i_val <- unique(df_cond1$i_mean)
 
 df_pred <- data.frame(

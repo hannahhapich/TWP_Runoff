@@ -6,8 +6,6 @@ library(scales)
 library(cowplot)
 library(rlang)
 library(grid)
-#library(akima)
-library(viridisLite)
 
 #Load data ----
 flux_data <- read.csv("data/output_data/flux_data.csv")
@@ -29,7 +27,7 @@ y_full_max <- 117
 crop_x_width <- 60
 crop_y_height <- 120
 
-nx <- 120  #smoothing params
+nx <- 120  #Smoothing params
 ny <- 240
 
 fill_title <- "Rainfall Intensity\n(mm/min)"
@@ -346,15 +344,14 @@ legend_plot <- ggplot(legend_df, aes(x, y, colour = type)) +
   #Shapes: only the first is a dot, others are "no point"
   scale_shape_manual(
     values = c(
-      "measured mass flux"   = 16,  # filled circle
+      "measured mass flux"   = 16,
       "wash-off model fit"   = NA,
       "measured runoff volume" = NA
     )
   ) +
-  #Linetypes: only the two lines get a solid line
   scale_linetype_manual(
     values = c(
-      "measured mass flux"   = "blank",  # no line
+      "measured mass flux"   = "blank",
       "wash-off model fit"   = "solid",
       "measured runoff volume" = "solid"
     )
@@ -1043,8 +1040,6 @@ if (length(surf_lvls) == 2) {
   surf_cols <- setNames(magma(length(surf_lvls)), surf_lvls)
 }
 
-#pal_full  <- viridisLite::magma(11)
-#surf_cols <- c(concrete = pal_full[7], sand = pal_full[9])
 #Reorder so sand comes first
 order_levels <- c("sand","concrete")
 shape_data$surface <- factor(shape_data$surface, levels = order_levels)
@@ -1101,7 +1096,7 @@ plot_shape_overlay <- function(df, x,
       d <- df[df$surface == s, , drop = FALSE]
       if (nrow(d) < 2) return(NA_real_)
       fit <- stats::lm(stats::reformulate(deparse(x_sym), response = "velocity_norm"), data = d)
-      unname(stats::coef(fit)[2])  #slope for x
+      unname(stats::coef(fit)[2])
     })
     names(betas) <- lvls
   } else if (beta_mode == "manual") {
