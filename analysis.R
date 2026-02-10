@@ -112,7 +112,7 @@ mass_summary_no_slope <- mass_summary %>%
     .groups = "drop"
   )
 
-mass_summary_no_slope
+mass_summary_no_slope #medium/high recovery for concrete: 0.8896247
 
 #Variability between replicates ----
 ##Mass-based variability between individual samples ----
